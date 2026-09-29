@@ -191,7 +191,10 @@
       <button class="primary" id="saveWifi">Save &amp; restart</button>
       <p class="hint" style="margin-top:16px">Display panel type. If the screen stays black or the colours look wrong, try the next one (the emblem restarts each time):</p>
       <div class="row"><select id="panel"></select></div>
-      <button id="savePanel">Use this panel type</button>
+      <div class="split">
+        <button id="savePanel">Use this panel type</button>
+        <button id="testColours">Show test colours</button>
+      </div>
       <p class="hint" style="margin-top:16px">Firmware update (.bin from PlatformIO):</p>
       <input type="file" id="fw" accept=".bin">
       <div class="split" style="margin-top:10px">
@@ -751,6 +754,9 @@ function setupSystem() {
       setOnline(false, 'Restarting…');
       setTimeout(loadState, 7000);
     } catch (e) { toast(e.message, 5000); }
+  };
+  $('testColours').onclick = async () => {
+    try { toast(await api('/api/test', new URLSearchParams()), 3000); } catch (e) { toast(e.message, 4000); }
   };
   $('reboot').onclick = async () => {
     try { await api('/api/reboot', new URLSearchParams()); } catch (e) {}
