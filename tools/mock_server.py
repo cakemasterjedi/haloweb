@@ -24,6 +24,7 @@ state = {
     "stripe1": "#3FA9F5", "stripe2": "#1B3D8F", "stripe3": "#E22718", "stripeBg": "#101214",
     "solid": "#1C69D4", "textBg": "#000000", "textFg": "#FFFFFF", "text": "M|POWER",
     "apSsid": "BMW-Emblem", "staSsid": "", "staIp": "", "slots": [0, 0, 0, 0, 0],
+    "panel": 0, "panels": ["2.8in round (TL028WVC01)", "2.8in round (ST7701 type 6)"], "display": True,
 }
 LIMITS = {"mode": (0, 5), "brightness": (5, 100), "speed": (-100, 100), "imageSlot": (0, 4),
           "angle": (-180, 180), "spacing": (0, 30)}
@@ -99,6 +100,9 @@ class Handler(BaseHTTPRequestHandler):
             state["apSsid"] = f.get("apSsid") or "BMW-Emblem"
             state["staSsid"] = f.get("staSsid", state["staSsid"])
             self.reply(200, "Saved. Restarting...", "text/plain")
+        elif url.path == "/api/panel":
+            state["panel"] = int(self.form().get("panel", 0))
+            self.reply(200, "Restarting...", "text/plain")
         elif url.path in ("/api/reboot", "/update"):
             self.rfile.read(int(self.headers.get("Content-Length", 0)))
             self.reply(200, "Restarting...", "text/plain")

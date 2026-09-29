@@ -47,6 +47,8 @@
   .row input[type=range] { flex: 1; }
   .row output { flex: 0 0 42px; text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); font-size: 13px; }
   input[type=range] { accent-color: var(--accent); height: 28px; }
+  .warn { background: #3a1512; border: 1px solid var(--danger); border-radius: 12px; padding: 12px 14px; margin-bottom: 12px; font-size: 14px; }
+  select { flex: 1; min-width: 0; font: inherit; color: var(--text); background: #0f1115; border: 1px solid var(--line); border-radius: 10px; padding: 10px; }
   input[type=text], input[type=password] {
     flex: 1; min-width: 0; font: inherit; color: var(--text); background: #0f1115;
     border: 1px solid var(--line); border-radius: 10px; padding: 10px;
@@ -77,6 +79,8 @@
     <h1>Emblem</h1>
     <div class="status"><span class="dot" id="dot"></span><span id="statusText">Connecting…</span></div>
   </header>
+
+  <div class="warn hidden" id="displayWarn">The display didn't start. Open <b>Wi-Fi &amp; system</b> below and try another <b>panel type</b>.</div>
 
   <div class="preview"><canvas id="preview" width="480" height="480"></canvas></div>
 
@@ -165,6 +169,9 @@
       <div class="row"><label for="staPass">Password</label><input type="password" id="staPass" maxlength="64" placeholder="unchanged"></div>
       <p class="hint" id="staInfo"></p>
       <button class="primary" id="saveWifi">Save &amp; restart</button>
+      <p class="hint" style="margin-top:16px">Display panel type. If the screen stays black or the colours look wrong, try the next one (the emblem restarts each time):</p>
+      <div class="row"><select id="panel"></select></div>
+      <button id="savePanel">Use this panel type</button>
       <p class="hint" style="margin-top:16px">Firmware update (.bin from PlatformIO):</p>
       <input type="file" id="fw" accept=".bin">
       <div class="split" style="margin-top:10px">
@@ -299,6 +306,9 @@ function fillControls() {
   for (const k of [...RANGE_KEYS, ...TEXT_KEYS]) $(k).value = st[k];
   for (const k of COLOR_KEYS) $(k).value = st[k].toLowerCase();
   $('apSsid').value = st.apSsid;
+  $('panel').innerHTML = (st.panels || []).map((n, i) => `<option value="${i}">${i + 1}. ${n}</option>`).join('');
+  $('panel').value = st.panel;
+  $('displayWarn').classList.toggle('hidden', st.display !== false);
   $('staSsid').value = st.staSsid;
   $('staInfo').textContent = st.staSsid
     ? (st.staIp ? `Joined "${st.staSsid}" — also reachable at http://${st.staIp}` : `Not connected to "${st.staSsid}" right now.`)
@@ -440,6 +450,13 @@ function setupSystem() {
       toast(await api('/api/wifi', body), 5000);
       setOnline(false, 'Restarting…');
       setTimeout(loadState, 6000);
+    } catch (e) { toast(e.message, 5000); }
+  };
+  $('savePanel').onclick = async () => {
+    try {
+      toast(await api('/api/panel', new URLSearchParams({panel: $('panel').value})), 5000);
+      setOnline(false, 'Restarting…');
+      setTimeout(loadState, 7000);
     } catch (e) { toast(e.message, 5000); }
   };
   $('reboot').onclick = async () => {
