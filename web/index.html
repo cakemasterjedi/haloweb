@@ -371,8 +371,6 @@
       <h2>Display</h2>
       <div class="row"><label for="startupAnim">Start-up animation<span class="sub">Chrome ring, spin-in and glint at power-on</span></label>
         <label class="switch"><input type="checkbox" id="startupAnim"><span></span></label></div>
-      <div class="row"><label for="showIp">Show hotspot address<span class="sub">On the emblem for 6 s when it joins your hotspot</span></label>
-        <label class="switch"><input type="checkbox" id="showIp"><span></span></label></div>
       <div class="row"><label for="panel">Panel timing</label><select id="panel"></select></div>
       <div class="split">
         <button id="savePanel">Apply &amp; restart</button>
@@ -385,7 +383,7 @@
       <p class="hint" style="margin-top:0">The emblem's own network (the one your phone joins):</p>
       <div class="row"><label for="apSsid">Name</label><input type="text" id="apSsid" maxlength="32"></div>
       <div class="row"><label for="apPass">Password</label><input type="password" id="apPass" maxlength="64" placeholder="unchanged"></div>
-      <p class="hint">Also join your phone's hotspot (optional) so your phone keeps its internet. The emblem's own network stays on. Open it at the address shown below or on the emblem when it connects (it's listed as "emblem" among your hotspot's devices). <i>emblem.local</i> doesn't work in Android browsers.</p>
+      <p class="hint">Also join your phone's hotspot (optional) so your phone keeps its internet. The emblem's own network stays on. Open it at the address shown below once it connects (it's also listed as "emblem" among your hotspot's devices). <i>emblem.local</i> doesn't work in Android browsers.</p>
       <div class="row"><label for="staSsid">Hotspot</label><input type="text" id="staSsid" maxlength="32"></div>
       <div class="row"><label for="staPass">Password</label><input type="password" id="staPass" maxlength="64" placeholder="unchanged"></div>
       <p class="hint" id="staInfo"></p>
@@ -432,7 +430,7 @@ const RANGE_KEYS = ['speed', 'angle', 'spacing', 'showBrightness'];
 const TEXT_KEYS = ['labelText', 'text'];
 
 const ROUNDEL_PRESETS = [
-  {name: 'Classic', quadA: '#1C69D4', quadB: '#FFFFFF', ring: '#000000', rim: '#B8BCC2', label: '#FFFFFF'},
+  {name: 'Classic', quadA: '#2C8BD6', quadB: '#FFFFFF', ring: '#000000', rim: '#B8BCC2', label: '#FFFFFF'},
   {name: 'Blackout', quadA: '#161616', quadB: '#3A3A3A', ring: '#000000', rim: '#303030', label: '#8A8A8A'},
   {name: 'Motorsport', quadA: '#1B3D8F', quadB: '#E22718', ring: '#000000', rim: '#B8BCC2', label: '#FFFFFF'},
   {name: 'Carbon', quadA: '#1E1E1E', quadB: '#C8C8C8', ring: '#0A0A0A', rim: '#8C8C8C', label: '#C8C8C8'},
@@ -592,7 +590,6 @@ function fillControls() {
   $('panel').innerHTML = (st.panels || []).map((n, i) => `<option value="${i}">${n}</option>`).join('');
   $('panel').value = st.panel;
   $('startupAnim').checked = !!st.startupAnim;
-  $('showIp').checked = !!st.showIp;
   $('displayWarn').classList.toggle('hidden', st.display !== false);
   $('staSsid').value = st.staSsid;
   $('staInfo').textContent = st.staSsid
@@ -731,7 +728,6 @@ function setupPower() {
 
 function setupSystem() {
   $('startupAnim').onchange = (e) => send({startupAnim: e.target.checked ? 1 : 0});
-  $('showIp').onchange = (e) => send({showIp: e.target.checked ? 1 : 0});
   $('saveWifi').onclick = async () => {
     const body = new URLSearchParams({apSsid: $('apSsid').value, staSsid: $('staSsid').value});
     if ($('apPass').value) body.append('apPass', $('apPass').value);
@@ -1160,8 +1156,9 @@ function setupPictures() {
 // Mirrors src/renderer.cpp closely enough to see what the emblem will look like.
 
 const C = 240;
-const R_RING = 228, R_INNER_RIM = 158, R_DISC = 147;
-const LABEL_BASE = 168.5, LABEL_SCALE = 6.2, LABEL_STROKE = 1.6;
+const R_RING = 231, R_INNER_RIM = 158, R_DISC = 151;
+const LABEL_MID = 194, LABEL_CAP = 55;
+const LABEL_FONT = 'bold 100px Arial, "Liberation Sans", Helvetica, sans-serif';
 const thumbCache = {};
 
 function layout(text, tracking) {
@@ -1206,6 +1203,12 @@ function shade(hex, f) {
   return '#' + c(n >> 16) + c((n >> 8) & 255) + c(n & 255);
 }
 
+function lighten(hex, t) {
+  const n = parseInt(hex.slice(1), 16);
+  const c = (v) => Math.round(v + (255 - v) * t).toString(16).padStart(2, '0');
+  return '#' + c(n >> 16) + c((n >> 8) & 255) + c(n & 255);
+}
+
 function circle(ctx, r, fill) {
   ctx.beginPath();
   ctx.arc(C, C, r, 0, Math.PI * 2);
@@ -1233,25 +1236,39 @@ function drawRoundel(ctx, phi) {
   ctx.fillStyle = '#000';
   ctx.fillRect(0, 0, 480, 480);
   chromeRing(ctx, R_RING - 1, 239.5, st.rim);
-  const rg = ctx.createRadialGradient(C - 60, C - 70, 20, C, C, R_RING);
-  rg.addColorStop(0, shade(st.ring, 1.4));
+  // Glossy black ring: soft reflection over the top.
+  const rg = ctx.createLinearGradient(0, C - R_RING, 0, C + R_RING);
+  rg.addColorStop(0, lighten(st.ring, 0.15));
+  rg.addColorStop(0.45, st.ring);
   rg.addColorStop(1, st.ring);
   circle(ctx, R_RING, rg);
-  const t = layout(st.labelText, st.spacing);
-  const mid = LABEL_BASE + 4 * LABEL_SCALE;
-  const lg = ctx.createRadialGradient(C, C, LABEL_BASE, C, C, LABEL_BASE + 8 * LABEL_SCALE);
-  lg.addColorStop(0, shade(st.label, 0.78));
-  lg.addColorStop(1, st.label);
+  // Upright bold letters spread evenly around the top (as in the firmware).
   ctx.save();
-  ctx.shadowColor = 'rgba(0,0,0,.8)';
-  ctx.shadowBlur = 8;
-  ctx.strokeStyle = lg;
-  ctx.lineWidth = LABEL_STROKE * LABEL_SCALE;
-  ctx.lineCap = ctx.lineJoin = 'round';
-  strokePaths(ctx, t.strokes, (u, v) => {
-    const a = (u - t.width / 2) * LABEL_SCALE / mid + off;
-    const r = LABEL_BASE + v * LABEL_SCALE;
-    return [C + r * Math.sin(a), C - r * Math.cos(a)];
+  ctx.font = LABEL_FONT;
+  const capPx = 100 * 0.716;  // Arial / Helvetica Bold cap height at 100px
+  const chars = [...st.labelText.toUpperCase()].slice(0, 16);
+  const deg = Math.PI / 180;
+  let sc = LABEL_CAP / capPx;
+  const maxAdv = Math.max(1, ...chars.map((ch) => ctx.measureText(ch).width));
+  const minStep = maxAdv * sc / LABEL_MID + 2 * deg;
+  let step = Math.max((22 + st.spacing * 2.2) * deg, minStep);
+  if (chars.length > 1 && (chars.length - 1) * step > 300 * deg) step = 300 * deg / (chars.length - 1);
+  if (step < minStep) sc *= (step - 2 * deg) / (minStep - 2 * deg);
+  const base = LABEL_MID - capPx * sc / 2;
+  const lg = ctx.createLinearGradient(0, 0, 0, -capPx);
+  lg.addColorStop(0, shade(st.label, 0.84));
+  lg.addColorStop(0.75, st.label);
+  ctx.fillStyle = lg;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'alphabetic';
+  chars.forEach((ch, i) => {
+    const a = (i - (chars.length - 1) / 2) * step + off;
+    ctx.save();
+    ctx.translate(C + base * Math.sin(a), C - base * Math.cos(a));
+    ctx.rotate(a);
+    ctx.scale(sc, sc);
+    ctx.fillText(ch, 0, 0);
+    ctx.restore();
   });
   ctx.restore();
   chromeRing(ctx, R_DISC - 1, R_INNER_RIM, st.rim);
@@ -1265,15 +1282,29 @@ function drawRoundel(ctx, phi) {
     ctx.fillStyle = q % 2 === 0 ? st.quadA : st.quadB;
     ctx.fill();
   }
-  // Dome: darker towards the rim, soft gloss on the upper left.
-  const edge = ctx.createRadialGradient(C, C, R_DISC * 0.8, C, C, R_DISC);
+  // Lighter top left, darker bottom right, soft gloss.
+  const k = R_DISC * 0.7071;
+  const light = ctx.createLinearGradient(C - k, C - k, C + k, C + k);
+  light.addColorStop(0, 'rgba(255,255,255,.16)');
+  light.addColorStop(0.5, 'rgba(255,255,255,0)');
+  light.addColorStop(0.5, 'rgba(0,0,0,0)');
+  light.addColorStop(1, 'rgba(0,0,0,.2)');
+  circle(ctx, R_DISC, light);
+  const edge = ctx.createRadialGradient(C, C, R_DISC * 0.85, C, C, R_DISC);
   edge.addColorStop(0, 'rgba(0,0,0,0)');
-  edge.addColorStop(1, 'rgba(0,0,0,.32)');
+  edge.addColorStop(1, 'rgba(0,0,0,.12)');
   circle(ctx, R_DISC, edge);
-  const gloss = ctx.createRadialGradient(C - 58, C - 66, 0, C - 58, C - 66, 150);
-  gloss.addColorStop(0, 'rgba(255,255,255,.28)');
-  gloss.addColorStop(1, 'rgba(255,255,255,0)');
-  circle(ctx, R_DISC, gloss);
+  // Thin lines between the quarters.
+  ctx.save();
+  ctx.translate(C, C);
+  ctx.rotate(phi);
+  ctx.strokeStyle = shade(st.rim, 0.8);
+  ctx.lineWidth = 1.6;
+  ctx.beginPath();
+  ctx.moveTo(-R_DISC, 0); ctx.lineTo(R_DISC, 0);
+  ctx.moveTo(0, -R_DISC); ctx.lineTo(0, R_DISC);
+  ctx.stroke();
+  ctx.restore();
 }
 
 let carbonPattern = null, carbonFor = '';

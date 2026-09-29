@@ -5,6 +5,8 @@
 #include <stdint.h>
 #include "settings.h"
 
+struct LabelGlyph;
+
 struct Rect {
     int16_t x, y, w, h;
     bool empty() const { return w <= 0 || h <= 0; }
@@ -22,8 +24,8 @@ public:
     // Call whenever settings change; the next render() redraws everything.
     void apply(const Settings &s);
 
-    // Start-up animation: the chrome ring sweeps in, the quarters spin into
-    // place, a glint crosses the badge, then the selected mode takes over.
+    // Start-up animation: the ring sweeps in, the quarters spin into place,
+    // a glint crosses the badge, then the selected mode takes over.
     void startIntro(uint32_t ms);
     bool introRunning() const { return introStart_ != 0; }
 
@@ -46,7 +48,8 @@ private:
     };
     static const int MAX_SEGS = 512;
     static const int MAX_GLYPHS = 40;
-    static const int DISC = 300;  // side of the disc shading images
+    static const int DISC = 304;  // side of the disc shading images
+    static const int MAX_LABEL = 16;
 
     struct TextLayout {
         Seg segs[MAX_SEGS];
@@ -61,10 +64,20 @@ private:
 
     enum Layer : uint8_t { LAYER_NONE, LAYER_ROUNDEL, LAYER_CARBON };
 
+    // Ring lettering: upright bold letters spread evenly around the top.
+    struct LabelLayout {
+        int count;
+        const LabelGlyph *glyph[MAX_LABEL];
+        float step;      // angle between letter centres, radians
+        float scale;     // screen pixels per font pixel
+        float baseline;  // radius of the baseline
+    };
+
     static void layoutText(TextLayout &t, const char *text, int len, float tracking);
-    static float distToLayout(const TextLayout &t, float u, float v);
 
     void buildTables();
+    void layoutLabel();
+    float labelCoverage(float fx, float fy, float r, float offset, float &height) const;
     void buildRoundelLayer();
     void buildCarbonLayer();
     void drawDisc(float phi);
@@ -89,5 +102,6 @@ private:
     uint32_t lastMs_ = 0;
     uint32_t introStart_ = 0;
     float phase_ = 0;  // radians (spin) or pixels (stripes)
-    TextLayout text_;
+    uint16_t divider_ = 0;  // lines between the quarters
+    LabelLayout label_;
 };

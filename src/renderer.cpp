@@ -3,6 +3,7 @@
 #include <math.h>
 #include <string.h>
 
+#include "label_font.h"
 #include "stroke_font.h"
 
 namespace {
@@ -11,14 +12,15 @@ const float PI_F = 3.14159265f;
 const float CX = Renderer::W / 2.0f;
 const float CY = Renderer::H / 2.0f;
 
-// Roundel geometry (pixels from the centre).
-const float R_EDGE = 239.5f;       // outer edge of the outer chrome rim
-const float R_RING = 228.0f;       // outer edge of the black ring
-const float R_INNER_RIM = 158.0f;  // outer edge of the inner chrome rim
-const float R_DISC = 147.0f;       // quarters
-const float LABEL_BASE = 168.5f;   // baseline of the ring lettering
-const float LABEL_SCALE = 6.2f;    // pixels per font unit on the ring
-const float LABEL_STROKE = 1.6f;   // ring lettering stroke thickness in font units
+// Roundel geometry (pixels from the centre), after the classic badge: thin
+// silver outer rim, wide black ring, thin silver inner rim, quartered disc.
+const float R_EDGE = 239.5f;       // outer edge of the outer rim
+const float R_RING = 231.0f;       // outer edge of the black ring
+const float R_INNER_RIM = 158.0f;  // outer edge of the inner rim
+const float R_DISC = 151.0f;       // quarters
+const float LABEL_MID = 194.0f;    // radius of the middle of the ring lettering
+const float LABEL_CAP = 55.0f;     // cap height of the ring lettering, pixels
+const float DIVIDER = 0.8f;        // half width of the lines between the quarters
 const float STROKE = 1.35f;        // text mode stroke thickness in font units
 
 // Light comes from the upper left, slightly towards the viewer.
@@ -246,34 +248,76 @@ void Renderer::layoutText(TextLayout &t, const char *text, int len, float tracki
     t.width = t.glyphCount ? x - tracking : 0;
 }
 
-float Renderer::distToLayout(const TextLayout &t, float u, float v) {
-    const float margin = LABEL_STROKE + 1;
-    float best = 1e9f;
-    for (int g = 0; g < t.glyphCount; g++) {
-        if (u < t.glyphX0[g] - margin || u > t.glyphX1[g] + margin) continue;
-        for (int i = t.glyphFirst[g]; i < t.glyphLast[g]; i++) {
-            const Seg &s = t.segs[i];
-            float d = segDist2(u, v, s.x0, s.y0, s.x1, s.y1);
-            if (d < best) best = d;
-        }
-    }
-    return sqrtf(best);
-}
-
 // ---------------------------------------------------------------------------
 // Roundel
 
+// Letters are spread evenly around the top of the ring, each one upright
+// (pointing out from the centre). The spacing setting sets the angle between
+// them; long labels get closer together and then smaller so they still fit.
+void Renderer::layoutLabel() {
+    LabelLayout &l = label_;
+    l.count = 0;
+    float maxAdv = 1;
+    for (const char *p = s_.labelText; *p && l.count < MAX_LABEL; p++) {
+        const LabelGlyph *g = labelGlyph(*p);
+        l.glyph[l.count++] = g;
+        if (g->advance > maxAdv) maxAdv = g->advance;
+    }
+    const float deg = PI_F / 180;
+    float sc = LABEL_CAP / LABEL_FONT_CAP;
+    const float minStep = maxAdv * sc / LABEL_MID + 2 * deg;  // widest letter + a gap
+    float step = (22 + s_.spacing * 2.2f) * deg;
+    if (step < minStep) step = minStep;
+    if (l.count > 1 && (l.count - 1) * step > 300 * deg) step = 300 * deg / (l.count - 1);
+    if (step < minStep) sc *= (step - 2 * deg) / (minStep - 2 * deg);
+    l.step = step;
+    l.scale = sc;
+    l.baseline = LABEL_MID - LABEL_FONT_CAP * sc / 2;
+}
+
+// Coverage (0..1) of the ring lettering at a pixel; height is how far up the
+// letter it is (0 at the baseline, 1 at the cap height).
+float Renderer::labelCoverage(float fx, float fy, float r, float offset, float &height) const {
+    const LabelLayout &l = label_;
+    if (!l.count) return 0;
+    float a = atan2f(fx, -fy) - offset;  // clockwise from the top
+    while (a > PI_F) a -= 2 * PI_F;
+    while (a < -PI_F) a += 2 * PI_F;
+    const float first = -(l.count - 1) * l.step / 2;
+    int i = int(floorf((a - first) / l.step + 0.5f));
+    if (i < 0) i = 0;
+    if (i >= l.count) i = l.count - 1;
+    const LabelGlyph *g = l.glyph[i];
+    if (!g->w) return 0;
+    const float da = a - (first + i * l.step);
+    const float u = r * sinf(da) / l.scale;                // across the letter
+    const float v = (r * cosf(da) - l.baseline) / l.scale;  // up from the baseline
+    height = v / LABEL_FONT_CAP;
+    // Bilinear sample of the glyph bitmap.
+    const float gx = u + g->advance * 0.5f - g->left - 0.5f;
+    const float gy = LABEL_FONT_TOP + LABEL_FONT_CAP - v - 0.5f;
+    const int x0 = int(floorf(gx)), y0 = int(floorf(gy));
+    if (x0 < -1 || y0 < -1 || x0 >= g->w || y0 >= LABEL_FONT_H) return 0;
+    const float tx = gx - x0, ty = gy - y0;
+    const uint8_t *bits = LABEL_FONT_BITS + g->offset;
+    auto px = [&](int x, int y) -> float {
+        return (x < 0 || y < 0 || x >= g->w || y >= LABEL_FONT_H) ? 0 : bits[y * g->w + x];
+    };
+    float top = px(x0, y0) + (px(x0 + 1, y0) - px(x0, y0)) * tx;
+    float bot = px(x0, y0 + 1) + (px(x0 + 1, y0 + 1) - px(x0, y0 + 1)) * tx;
+    return (top + (bot - top) * ty) / 255.0f;
+}
+
 void Renderer::buildRoundelLayer() {
-    layoutText(text_, s_.labelText, strlen(s_.labelText), s_.spacing);
+    layoutLabel();
 
     const RGBf rim = rgbf(s_.rim);
     const RGBf ring = rgbf(s_.ring);
     const RGBf label = rgbf(s_.label);
     const RGBf qa = rgbf(s_.quadA), qb = rgbf(s_.quadB);
     const float offset = s_.angle * PI_F / 180.0f;
-    const float labelTop = LABEL_BASE + FONT_CAP_HEIGHT * LABEL_SCALE;
-    const float labelMid = LABEL_BASE + FONT_CAP_HEIGHT * LABEL_SCALE / 2;
-    const float halfStroke = LABEL_STROKE * LABEL_SCALE / 2;
+    const float labelIn = label_.baseline - 14 * label_.scale;
+    const float labelOut = label_.baseline + (LABEL_FONT_CAP + LABEL_FONT_TOP + 1) * label_.scale;
 
     for (int y = 0; y < H; y++) {
         float fy = y + 0.5f - CY;
@@ -285,31 +329,22 @@ void Renderer::buildRoundelLayer() {
                 c = mix(c, chrome(rim, fx, fy, r, R_RING - 1, R_EDGE), inside(R_EDGE, r));
             }
             if (r < R_RING + 1) {
-                // Glossy ring: a soft sheen on the lit (upper-left) side and
-                // darker next to the rims.
-                float lit = clamp01((fx * LX + fy * LY) / r);
+                // Glossy black ring: a soft reflection over the top half,
+                // slightly darker next to the rims.
                 float across = (r - R_INNER_RIM) / (R_RING - R_INNER_RIM);
-                float edgeShade = 1 - 0.4f * (smoothstep(0.7f, 1.0f, across) + smoothstep(0.3f, 0.0f, across));
-                float gloss = lit * lit * lit * (1 - fabsf(across - 0.5f) * 1.6f);
-                RGBf ringPx = scale(add(ring, 55.0f * clamp01(gloss)), edgeShade);
+                float edgeShade = 1 - 0.3f * (smoothstep(0.8f, 1.0f, across) + smoothstep(0.2f, 0.0f, across));
+                float top = clamp01(-fy / r);
+                float lit = clamp01((fx * LX + fy * LY) / r);
+                float gloss = 0.55f * top * top + 0.45f * lit * lit * lit;
+                gloss *= 1 - fabsf(across - 0.5f) * 1.4f;
+                RGBf ringPx = scale(add(ring, 38.0f * clamp01(gloss)), edgeShade);
 
-                if (r > LABEL_BASE - 10 && r < labelTop + 10) {
-                    float a = atan2f(fx, -fy) - offset;  // clockwise from the top
-                    while (a > PI_F) a -= 2 * PI_F;
-                    while (a < -PI_F) a += 2 * PI_F;
-                    float u = a * labelMid / LABEL_SCALE + text_.width / 2;
-                    float v = (r - LABEL_BASE) / LABEL_SCALE;
-                    float d = distToLayout(text_, u, v) * LABEL_SCALE;
-                    // Soft shadow around the letters, then the letters with a
-                    // top-to-bottom metallic gradient.
-                    float sh = clamp01((halfStroke + 5.0f - d) / 5.0f);
-                    ringPx = scale(ringPx, 1 - 0.55f * sh * sh);
-                    float cov = clamp01(halfStroke + 0.5f - d);
+                if (r > labelIn && r < labelOut) {
+                    float h = 0;
+                    float cov = labelCoverage(fx, fy, r, offset, h);
                     if (cov > 0) {
-                        float g = clamp01(v / FONT_CAP_HEIGHT);
-                        RGBf l = mix(scale(label, 0.78f), mix(label, WHITE, 0.35f), g);
-                        float edge = clamp01((halfStroke - d) / 2.5f);  // bevel: brighter core
-                        l = mix(scale(l, 0.8f), l, edge);
+                        // White letters, a touch greyer towards the centre.
+                        RGBf l = mix(scale(label, 0.84f), label, clamp01(0.25f + h));
                         ringPx = mix(ringPx, l, cov);
                     }
                 }
@@ -325,26 +360,29 @@ void Renderer::buildRoundelLayer() {
         }
     }
 
-    // Domed, glossy quarters: slightly darker towards the rim, with a soft
-    // highlight on the upper left. One image per quarter colour.
+    // Quarters: lighter towards the top left, darker towards the bottom
+    // right, with a soft gloss and a slightly darker edge. One image per
+    // quarter colour.
     const int x0 = int(CX) - DISC / 2, y0 = int(CY) - DISC / 2;
     for (int y = 0; y < DISC; y++) {
         float fy = y0 + y + 0.5f - CY;
         for (int x = 0; x < DISC; x++) {
             float fx = x0 + x + 0.5f - CX;
             float rr = sqrtf(fx * fx + fy * fy) / R_DISC;
-            float shade = (1.0f - 0.12f * rr * rr) * (1.0f - 0.3f * smoothstep(0.84f, 1.0f, rr));
-            float hx = fx + 58, hy = fy + 66;
-            float gloss = expf(-(hx * hx + hy * hy) / (2 * 62.0f * 62.0f)) * 0.26f;
-            float rimGlow = smoothstep(0.93f, 1.0f, rr) * clamp01(-(fx * LX + fy * LY) / (R_DISC * 0.7f)) * 0.25f;
-            discA_[y * DISC + x] = to565d(mix(scale(qa, shade), WHITE, gloss + rimGlow), x, y);
-            discB_[y * DISC + x] = to565d(mix(scale(qb, shade), WHITE, gloss + rimGlow), x, y);
+            float t = clamp01(((fx + fy) * 0.7071f / R_DISC + 1) / 2);  // 0 top left .. 1 bottom right
+            float shade = (1.0f - 0.2f * t) * (1.0f - 0.12f * smoothstep(0.85f, 1.0f, rr));
+            float hx = fx + 55, hy = fy + 60;
+            float gloss = 0.14f * (1 - t) + expf(-(hx * hx + hy * hy) / (2 * 70.0f * 70.0f)) * 0.12f;
+            discA_[y * DISC + x] = to565d(mix(scale(qa, shade), WHITE, gloss), x, y);
+            discB_[y * DISC + x] = to565d(mix(scale(qb, shade), WHITE, gloss), x, y);
         }
     }
+    divider_ = to565(scale(rim, 0.8f));
     layer = LAYER_ROUNDEL;
 }
 
-// Quarters, rotated clockwise by phi. Only touches pixels fully inside the disc.
+// Quarters, rotated clockwise by phi, with thin lines between them. Only
+// touches pixels fully inside the disc.
 void Renderer::drawDisc(float phi) {
     const float cs = cosf(phi), sn = sinf(phi);
     const float rr = R_DISC - 0.5f;
@@ -366,12 +404,9 @@ void Renderer::drawDisc(float phi) {
             float v = -fx * sn + fy * cs;
             bool a = (u * v) > 0;  // top-left / bottom-right
             float d = fminf(fabsf(u), fabsf(v));
-            uint16_t own = a ? ra[x] : rb[x];
-            if (d < 0.5f) {
-                row[x] = blend565(a ? rb[x] : ra[x], own, int((0.5f + d) * 256));
-            } else {
-                row[x] = own;
-            }
+            uint16_t c = a ? ra[x] : rb[x];
+            if (d < DIVIDER + 0.5f) c = blend565(c, divider_, int(clamp01(DIVIDER + 0.5f - d) * 256));
+            row[x] = c;
         }
     }
 }
@@ -437,7 +472,7 @@ void Renderer::drawIntro(float t, bool intoRoundel) {
                     bool a = (u * v) > 0;
                     float d = fminf(fabsf(u), fabsf(v)) * discS;
                     c = a ? discA_[i] : discB_[i];
-                    if (d < 0.5f) c = blend565(a ? discB_[i] : discA_[i], c, int((0.5f + d) * 256));
+                    if (d < DIVIDER + 0.5f) c = blend565(c, divider_, int(clamp01(DIVIDER + 0.5f - d) * 256));
                 } else {
                     c = 0;
                 }

@@ -13,7 +13,7 @@ there's no app to install.
 
 | Mode | What it looks like | Speed slider |
 |---|---|---|
-| **Roundel** | Roundel with polished chrome rims, glossy ring, embossed letters and a domed centre. Colours and lettering are editable; presets Classic, Blackout, Motorsport, Carbon, Gold | – |
+| **Roundel** | The classic badge: thin silver rims, glossy black ring with bold upright lettering, blue and white quarters. Colours and lettering are editable; presets Classic, Blackout, Motorsport, Carbon, Gold | – |
 | **Spin** | Roundel with the quarters rotating | spin speed / direction |
 | **Stripes** | M tri-colour stripes on carbon-fibre twill | 0 = static, otherwise scrolls |
 | **Picture** | Photos, GIFs or videos from your phone (10 slots). Fill / Fit / Fit circle, zoom (pinch), drag, rotate | – |
@@ -22,7 +22,7 @@ there's no app to install.
 All modes also have **brightness** and **rotation** (to level the emblem if it's
 mounted at an angle). Settings are saved on the board.
 
-At power-on it plays a **start-up animation**: the chrome ring sweeps in, the
+At power-on it plays a **start-up animation**: the ring sweeps in, the
 quarters spin into place, a glint crosses the badge, then your selected mode
 takes over (can be switched off under *Settings*).
 
@@ -63,9 +63,9 @@ Under **Settings** you can:
 
 - rename the network or change its password;
 - have the board also join another network, such as your phone's hotspot, so
-  your phone keeps its internet. The emblem shows its address on screen when
-  it joins (and the page shows it too). Use that address: `emblem.local`
-  doesn't work in Android browsers;
+  your phone keeps its internet. The page shows the address it gets there
+  (it's also listed as "emblem" among the hotspot's devices). Use that
+  address: `emblem.local` doesn't work in Android browsers;
 - install firmware updates over Wi-Fi, so you don't need to reach the USB port
   once it's in the car.
 
@@ -141,7 +141,8 @@ g++ -O2 -std=c++17 -Isrc tools/host_preview.cpp src/renderer.cpp -o preview && .
 ```
 src/main.cpp          Wi-Fi, web server, storage, display output
 src/renderer.*        draws every mode into a frame buffer (portable C++)
-src/stroke_font.h     vector font for the ring lettering and text mode
+src/label_font.h      bold letters for the ring (made by tools/gen_label_font.py)
+src/stroke_font.h     vector font for text mode
 src/settings.h        settings + defaults
 web/index.html        phone control page
 include/display_config.h  board pins / display init

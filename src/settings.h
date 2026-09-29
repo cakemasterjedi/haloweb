@@ -26,7 +26,8 @@ enum VoltSource : uint8_t {
 };
 
 static const uint8_t IMAGE_SLOTS = 10;
-static const uint32_t SETTINGS_VERSION = 5;
+static const uint32_t SETTINGS_VERSION = 6;
+static const uint32_t CLASSIC_BLUE = 0x2C8BD6;  // default quarter colour
 
 struct Settings {
     uint32_t version;
@@ -39,13 +40,13 @@ struct Settings {
     int16_t angle;       // rotation offset in degrees, to line the emblem up on the car
     uint8_t panel;       // index into PANEL_TYPES (display_config.h)
     uint8_t startupAnim; // play the start-up animation at power-on
-    uint8_t showIp;      // show the hotspot address on screen when it connects
+    uint8_t unused;      // was showIp (version 5)
 
     // Roundel (colours are 0xRRGGBB)
     uint32_t quadA;      // top-left + bottom-right quadrants
     uint32_t quadB;      // top-right + bottom-left quadrants
     uint32_t ring;       // outer ring
-    uint32_t rim;        // chrome rims
+    uint32_t rim;        // silver rims
     uint32_t label;      // ring lettering
     char labelText[17];  // ring lettering, e.g. "BMW"
     uint8_t spacing;     // extra letter spacing on the ring (font units)
@@ -84,9 +85,8 @@ inline void settingsDefaults(Settings &s) {
     s.angle = 0;
     s.panel = 0;
     s.startupAnim = 1;
-    s.showIp = 1;
 
-    s.quadA = 0x1C69D4;
+    s.quadA = CLASSIC_BLUE;
     s.quadB = 0xFFFFFF;
     s.ring = 0x000000;
     s.rim = 0xB8BCC2;
