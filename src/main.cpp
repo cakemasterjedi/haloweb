@@ -73,7 +73,25 @@ static void applyBrightness() {
     forceFull = true;
 }
 
+// Full-screen red, green, blue, white. If these don't appear, the panel isn't
+// taking pixels at all (set-up commands or timing); if they do, the problem is
+// in drawing the emblem.
+static void showTestColours() {
+    if (!gfx) return;
+    const uint16_t colours[] = {RGB565_RED, RGB565_GREEN, RGB565_BLUE, RGB565_WHITE};
+    const char *names[] = {"red", "green", "blue", "white"};
+    for (int i = 0; i < 4; i++) {
+        logf("Test colour: %s\n", names[i]);
+        gfx->fillScreen(colours[i]);
+        delay(600);
+    }
+    forceFull = true;  // redraw the emblem afterwards
+}
+
+static uint32_t framesShown = 0;
+
 static void present(Rect r) {
+    if (framesShown++ == 0) logf("First emblem frame sent to the display\n");
     const uint16_t *src = renderer.frame();
     const bool scale = softDim && settings.brightness < 100;
     if (!scale && r.x == 0 && r.w == Renderer::W) {
@@ -579,6 +597,10 @@ static void setupWeb() {
     server.on("/api/image/delete", HTTP_POST, handleImageDelete);
     server.on("/api/wifi", HTTP_POST, handleWifi);
     server.on("/api/panel", HTTP_POST, handlePanel);
+    server.on("/api/test", HTTP_POST, [] {
+        server.send(200, "text/plain", "Showing red, green, blue, white");
+        showTestColours();
+    });
     server.on("/api/reboot", HTTP_POST, [] {
         server.send(200, "text/plain", "Restarting...");
         restartAt = millis() + 500;
@@ -638,6 +660,7 @@ static void setupDisplay() {
     renderer.apply(settings);
     if (settings.mode == MODE_ROUNDEL || settings.mode == MODE_SPIN) renderer.startIntro(millis());
     logf("Display ready\n");
+    showTestColours();
 }
 
 // The card slot shares GPIO1/2 with the display's set-up bus, so this must
