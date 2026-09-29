@@ -24,10 +24,11 @@
 static const size_t IMAGE_BYTES = size_t(Renderer::W) * Renderer::H * 2;
 static const uint32_t FRAME_MS = 20;
 static const uint32_t SAVE_DELAY_MS = 2000;
+static const int BL_CHANNEL = 1;
 static const uint64_t ANIM_CAP_FLASH = 8ull << 20;  // biggest animation kept in internal flash
 static const uint64_t ANIM_CAP_SD = 32ull << 20;    // ... and on a micro SD card
 
-static Arduino_RGB_Display *gfx;
+static esp_lcd_panel_handle_t panel;
 static Renderer renderer;
 static Settings settings;
 static Preferences prefs;
@@ -66,23 +67,28 @@ static void applyBrightness() {
     if (!displayOk) return;
     uint8_t pct = constrain(settings.brightness, 5, 100);
 #if LCD_BL_PIN >= 0
-    ledcWrite(0, map(pct, 0, 100, 0, 255));
+    ledcWrite(BL_CHANNEL, map(pct, 0, 100, 0, 1023));
 #endif
     for (int i = 0; i < 32; i++) lut5[i] = i * pct / 100;
     for (int i = 0; i < 64; i++) lut6[i] = i * pct / 100;
     forceFull = true;
 }
 
+static void panelDraw(int x, int y, int w, int h, const uint16_t *pixels) {
+    esp_lcd_panel_draw_bitmap(panel, x, y, x + w, y + h, pixels);
+}
+
 // Full-screen red, green, blue, white. If these don't appear, the panel isn't
 // taking pixels at all (set-up commands or timing); if they do, the problem is
 // in drawing the emblem.
 static void showTestColours() {
-    if (!gfx) return;
+    if (!panel || !presentBuf) return;
     const uint16_t colours[] = {RGB565_RED, RGB565_GREEN, RGB565_BLUE, RGB565_WHITE};
     const char *names[] = {"red", "green", "blue", "white"};
     for (int i = 0; i < 4; i++) {
         logf("Test colour: %s\n", names[i]);
-        gfx->fillScreen(colours[i]);
+        for (int p = 0; p < Renderer::W * Renderer::H; p++) presentBuf[p] = colours[i];
+        panelDraw(0, 0, Renderer::W, Renderer::H, presentBuf);
         delay(600);
     }
     forceFull = true;  // redraw the emblem afterwards
@@ -96,7 +102,7 @@ static void present(Rect r) {
     const bool scale = softDim && settings.brightness < 100;
     if (!scale && r.x == 0 && r.w == Renderer::W) {
         // Rows are already contiguous in the frame buffer.
-        gfx->draw16bitRGBBitmap(0, r.y, const_cast<uint16_t *>(src + r.y * Renderer::W), r.w, r.h);
+        panelDraw(0, r.y, r.w, r.h, src + r.y * Renderer::W);
         return;
     }
     uint16_t *dst = presentBuf;
@@ -112,7 +118,7 @@ static void present(Rect r) {
             *dst++ = (lut5[p >> 11] << 11) | (lut6[(p >> 5) & 63] << 5) | lut5[p & 31];
         }
     }
-    gfx->draw16bitRGBBitmap(r.x, r.y, presentBuf, r.w, r.h);
+    panelDraw(r.x, r.y, r.w, r.h, presentBuf);
 }
 
 // ---------------------------------------------------------------------------
@@ -633,29 +639,26 @@ static void setupDisplay() {
     }
 
 #if LCD_BL_PIN >= 0
-    ledcSetup(0, 5000, 8);
-    ledcAttachPin(LCD_BL_PIN, 0);
-    ledcWrite(0, 0);  // dark until the first frame
+    ledcSetup(BL_CHANNEL, 20000, 10);  // same PWM as Waveshare's demo
+    ledcAttachPin(LCD_BL_PIN, BL_CHANNEL);
+    ledcWrite(BL_CHANNEL, 0);          // dark until the first frame
 #endif
 
     if (!displayPowerOn()) logf("I/O expander (0x20) did not answer on I2C\n");
-    const uint8_t panel = settings.panel < PANEL_TYPE_COUNT ? settings.panel : 0;
-    logf("Panel type %u: %s\n", panel, PANEL_TYPES[panel].name);
-    int initResult = panelSendInit(panelType(panel).init, panelType(panel).initLen);
+    const uint8_t panelIndex = settings.panel < PANEL_TYPE_COUNT ? settings.panel : 0;
+    logf("Panel type %u: %s\n", panelIndex, PANEL_TYPES[panelIndex].name);
+    int initResult = panelSendInit(panelType(panelIndex).init, panelType(panelIndex).initLen);
     displayDeselect();
     if (initResult != 0) {
         logf("Panel set-up over SPI failed (code %d)\n", initResult);
         return;
     }
     logf("Panel set-up commands sent\n");
-    gfx = createDisplay(panel);
-    bool ok = gfx->begin();
-    if (!ok) {
-        logf("Display init failed\n");
+    panel = createPanel(panelIndex);
+    if (!panel) {
+        logf("Display init failed (RGB panel)\n");
         return;
     }
-    gfx->fillScreen(RGB565_BLACK);
-
     presentBuf = static_cast<uint16_t *>(psramAlloc(IMAGE_BYTES));
     if (!presentBuf || !renderer.begin(psramAlloc)) {
         logf("Out of PSRAM\n");
