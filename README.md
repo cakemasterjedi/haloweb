@@ -1,7 +1,9 @@
 # Digital BMW emblem (ESP32-S3 2.8" round display)
 
 Board: [Waveshare ESP32-S3-LCD-2.8C](https://www.waveshare.com/wiki/ESP32-S3-LCD-2.8C).
-The display start-up sequence and timings come from Waveshare's own demo code.
+The display is driven the same way as Waveshare's own demo: same ST7701 start-up
+commands over hardware SPI, and ESP-IDF's RGB panel driver with the demo's pins,
+timings, 30 MHz pixel clock and bounce buffers (Arduino core 3.x via pioarduino).
 
 Firmware that turns the ESP32-S3 2.8" 480×480 round display board into a
 digital roundel for the car. You control it from your phone's browser, so
@@ -94,9 +96,9 @@ g++ -O2 -std=c++17 -Isrc tools/host_preview.cpp src/renderer.cpp -o preview && .
 - **Pins** are in `include/display_config.h`.
 - **Backlight / brightness** uses PWM on GPIO6. If your board doesn't have the
   backlight there, add `-DLCD_BL_PIN=-1` to `build_flags` to dim in software.
-- **Panel type:** the default is Waveshare's own setup for this board. If the
-  screen stays black or the colours look wrong, pick another panel type under
-  *Wi-Fi & system* on the phone page.
+- **Panel type** (*Wi-Fi & system* on the phone page): the default runs the
+  pixel clock at 30 MHz like the demo; a 16 MHz option is there in case of
+  flicker. *Show test colours* fills the screen red, green, blue, white.
 - **Power in the car:** use a 12 V → 5 V USB buck converter on a switched
   (ignition) feed so it doesn't drain the battery. Fuse it.
 - **Mounting:** the display isn't weatherproof. Behind a clear, sealed cover

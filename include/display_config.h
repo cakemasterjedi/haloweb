@@ -5,7 +5,6 @@
 // https://www.waveshare.com/wiki/ESP32-S3-LCD-2.8C
 #include <Arduino.h>
 #include <Wire.h>
-#include <Arduino_GFX_Library.h>
 #include <driver/spi_master.h>
 #include <esp_lcd_panel_ops.h>
 #include <esp_lcd_panel_rgb.h>
@@ -31,124 +30,107 @@
 #define LCD_BL_PIN 6
 #endif
 
-// Start-up sequence from Waveshare's own ESP32-S3-LCD-2.8C demo
-// (Display_ST7701.cpp in ESP32-S3-LCD-2.8C-Demo.zip), converted to
-// Arduino_GFX init operations.
-static const uint8_t waveshare_2_8c_init_operations[] = {
-    BEGIN_WRITE,
-    WRITE_COMMAND_8, 0xFF,
-    WRITE_BYTES, 5, 0x77, 0x01, 0x00, 0x00, 0x13,
-    WRITE_COMMAND_8, 0xEF,
-    WRITE_BYTES, 1, 0x08,
-    WRITE_COMMAND_8, 0xFF,
-    WRITE_BYTES, 5, 0x77, 0x01, 0x00, 0x00, 0x10,
-    WRITE_COMMAND_8, 0xC0,
-    WRITE_BYTES, 2, 0x3B, 0x00,
-    WRITE_COMMAND_8, 0xC1,
-    WRITE_BYTES, 2, 0x10, 0x0C,
-    WRITE_COMMAND_8, 0xC2,
-    WRITE_BYTES, 2, 0x07, 0x0A,
-    WRITE_COMMAND_8, 0xC7,
-    WRITE_BYTES, 1, 0x00,
-    WRITE_COMMAND_8, 0xCC,
-    WRITE_BYTES, 1, 0x10,
-    WRITE_COMMAND_8, 0xCD,
-    WRITE_BYTES, 1, 0x08,
-    WRITE_COMMAND_8, 0xB0,
-    WRITE_BYTES, 16, 0x05, 0x12, 0x98, 0x0E, 0x0F, 0x07, 0x07, 0x09, 0x09, 0x23, 0x05, 0x52, 0x0F, 0x67, 0x2C, 0x11,
-    WRITE_COMMAND_8, 0xB1,
-    WRITE_BYTES, 16, 0x0B, 0x11, 0x97, 0x0C, 0x12, 0x06, 0x06, 0x08, 0x08, 0x22, 0x03, 0x51, 0x11, 0x66, 0x2B, 0x0F,
-    WRITE_COMMAND_8, 0xFF,
-    WRITE_BYTES, 5, 0x77, 0x01, 0x00, 0x00, 0x11,
-    WRITE_COMMAND_8, 0xB0,
-    WRITE_BYTES, 1, 0x5D,
-    WRITE_COMMAND_8, 0xB1,
-    WRITE_BYTES, 1, 0x3E,
-    WRITE_COMMAND_8, 0xB2,
-    WRITE_BYTES, 1, 0x81,
-    WRITE_COMMAND_8, 0xB3,
-    WRITE_BYTES, 1, 0x80,
-    WRITE_COMMAND_8, 0xB5,
-    WRITE_BYTES, 1, 0x4E,
-    WRITE_COMMAND_8, 0xB7,
-    WRITE_BYTES, 1, 0x85,
-    WRITE_COMMAND_8, 0xB8,
-    WRITE_BYTES, 1, 0x20,
-    WRITE_COMMAND_8, 0xC1,
-    WRITE_BYTES, 1, 0x78,
-    WRITE_COMMAND_8, 0xC2,
-    WRITE_BYTES, 1, 0x78,
-    WRITE_COMMAND_8, 0xD0,
-    WRITE_BYTES, 1, 0x88,
-    WRITE_COMMAND_8, 0xE0,
-    WRITE_BYTES, 3, 0x00, 0x00, 0x02,
-    WRITE_COMMAND_8, 0xE1,
-    WRITE_BYTES, 11, 0x06, 0x30, 0x08, 0x30, 0x05, 0x30, 0x07, 0x30, 0x00, 0x33, 0x33,
-    WRITE_COMMAND_8, 0xE2,
-    WRITE_BYTES, 12, 0x11, 0x11, 0x33, 0x33, 0xF4, 0x00, 0x00, 0x00, 0xF4, 0x00, 0x00, 0x00,
-    WRITE_COMMAND_8, 0xE3,
-    WRITE_BYTES, 4, 0x00, 0x00, 0x11, 0x11,
-    WRITE_COMMAND_8, 0xE4,
-    WRITE_BYTES, 2, 0x44, 0x44,
-    WRITE_COMMAND_8, 0xE5,
-    WRITE_BYTES, 16, 0x0D, 0xF5, 0x30, 0xF0, 0x0F, 0xF7, 0x30, 0xF0, 0x09, 0xF1, 0x30, 0xF0, 0x0B, 0xF3, 0x30, 0xF0,
-    WRITE_COMMAND_8, 0xE6,
-    WRITE_BYTES, 4, 0x00, 0x00, 0x11, 0x11,
-    WRITE_COMMAND_8, 0xE7,
-    WRITE_BYTES, 2, 0x44, 0x44,
-    WRITE_COMMAND_8, 0xE8,
-    WRITE_BYTES, 16, 0x0C, 0xF4, 0x30, 0xF0, 0x0E, 0xF6, 0x30, 0xF0, 0x08, 0xF0, 0x30, 0xF0, 0x0A, 0xF2, 0x30, 0xF0,
-    WRITE_COMMAND_8, 0xE9,
-    WRITE_BYTES, 2, 0x36, 0x01,
-    WRITE_COMMAND_8, 0xEB,
-    WRITE_BYTES, 7, 0x00, 0x01, 0xE4, 0xE4, 0x44, 0x88, 0x40,
-    WRITE_COMMAND_8, 0xED,
-    WRITE_BYTES, 16, 0xFF, 0x10, 0xAF, 0x76, 0x54, 0x2B, 0xCF, 0xFF, 0xFF, 0xFC, 0xB2, 0x45, 0x67, 0xFA, 0x01, 0xFF,
-    WRITE_COMMAND_8, 0xEF,
-    WRITE_BYTES, 6, 0x08, 0x08, 0x08, 0x45, 0x3F, 0x54,
-    WRITE_COMMAND_8, 0xFF,
-    WRITE_BYTES, 5, 0x77, 0x01, 0x00, 0x00, 0x00,
-    WRITE_COMMAND_8, 0x11,
-    END_WRITE,
-    DELAY, 120,
-    BEGIN_WRITE,
-    WRITE_COMMAND_8, 0x3A,
-    WRITE_BYTES, 1, 0x66,
-    WRITE_COMMAND_8, 0x36,
-    WRITE_BYTES, 1, 0x00,
-    WRITE_COMMAND_8, 0x35,
-    WRITE_BYTES, 1, 0x00,
-    WRITE_COMMAND_8, 0x29,
-    END_WRITE};
+// Panel set-up program: OP_CMD c | OP_DATA n d1..dn | OP_DELAY ms.
+enum : uint8_t { OP_CMD = 1, OP_DATA, OP_DELAY };
 
-// The ST7701 needs a start-up sequence matched to the glass it is bonded to.
-// The first entry is Waveshare's for this board; the others are fallbacks for
-// similar 480x480 round panels, selectable from the phone page (Wi-Fi & system).
+// Start-up sequence from Waveshare's ESP32-S3-LCD-2.8C demo
+// (Display_ST7701.cpp in ESP32-S3-LCD-2.8C-Demo.zip), command for command.
+static const uint8_t waveshare_2_8c_init_operations[] = {
+        OP_CMD, 0xFF,
+    OP_DATA, 5, 0x77, 0x01, 0x00, 0x00, 0x13,
+    OP_CMD, 0xEF,
+    OP_DATA, 1, 0x08,
+    OP_CMD, 0xFF,
+    OP_DATA, 5, 0x77, 0x01, 0x00, 0x00, 0x10,
+    OP_CMD, 0xC0,
+    OP_DATA, 2, 0x3B, 0x00,
+    OP_CMD, 0xC1,
+    OP_DATA, 2, 0x10, 0x0C,
+    OP_CMD, 0xC2,
+    OP_DATA, 2, 0x07, 0x0A,
+    OP_CMD, 0xC7,
+    OP_DATA, 1, 0x00,
+    OP_CMD, 0xCC,
+    OP_DATA, 1, 0x10,
+    OP_CMD, 0xCD,
+    OP_DATA, 1, 0x08,
+    OP_CMD, 0xB0,
+    OP_DATA, 16, 0x05, 0x12, 0x98, 0x0E, 0x0F, 0x07, 0x07, 0x09, 0x09, 0x23, 0x05, 0x52, 0x0F, 0x67, 0x2C, 0x11,
+    OP_CMD, 0xB1,
+    OP_DATA, 16, 0x0B, 0x11, 0x97, 0x0C, 0x12, 0x06, 0x06, 0x08, 0x08, 0x22, 0x03, 0x51, 0x11, 0x66, 0x2B, 0x0F,
+    OP_CMD, 0xFF,
+    OP_DATA, 5, 0x77, 0x01, 0x00, 0x00, 0x11,
+    OP_CMD, 0xB0,
+    OP_DATA, 1, 0x5D,
+    OP_CMD, 0xB1,
+    OP_DATA, 1, 0x3E,
+    OP_CMD, 0xB2,
+    OP_DATA, 1, 0x81,
+    OP_CMD, 0xB3,
+    OP_DATA, 1, 0x80,
+    OP_CMD, 0xB5,
+    OP_DATA, 1, 0x4E,
+    OP_CMD, 0xB7,
+    OP_DATA, 1, 0x85,
+    OP_CMD, 0xB8,
+    OP_DATA, 1, 0x20,
+    OP_CMD, 0xC1,
+    OP_DATA, 1, 0x78,
+    OP_CMD, 0xC2,
+    OP_DATA, 1, 0x78,
+    OP_CMD, 0xD0,
+    OP_DATA, 1, 0x88,
+    OP_CMD, 0xE0,
+    OP_DATA, 3, 0x00, 0x00, 0x02,
+    OP_CMD, 0xE1,
+    OP_DATA, 11, 0x06, 0x30, 0x08, 0x30, 0x05, 0x30, 0x07, 0x30, 0x00, 0x33, 0x33,
+    OP_CMD, 0xE2,
+    OP_DATA, 12, 0x11, 0x11, 0x33, 0x33, 0xF4, 0x00, 0x00, 0x00, 0xF4, 0x00, 0x00, 0x00,
+    OP_CMD, 0xE3,
+    OP_DATA, 4, 0x00, 0x00, 0x11, 0x11,
+    OP_CMD, 0xE4,
+    OP_DATA, 2, 0x44, 0x44,
+    OP_CMD, 0xE5,
+    OP_DATA, 16, 0x0D, 0xF5, 0x30, 0xF0, 0x0F, 0xF7, 0x30, 0xF0, 0x09, 0xF1, 0x30, 0xF0, 0x0B, 0xF3, 0x30, 0xF0,
+    OP_CMD, 0xE6,
+    OP_DATA, 4, 0x00, 0x00, 0x11, 0x11,
+    OP_CMD, 0xE7,
+    OP_DATA, 2, 0x44, 0x44,
+    OP_CMD, 0xE8,
+    OP_DATA, 16, 0x0C, 0xF4, 0x30, 0xF0, 0x0E, 0xF6, 0x30, 0xF0, 0x08, 0xF0, 0x30, 0xF0, 0x0A, 0xF2, 0x30, 0xF0,
+    OP_CMD, 0xE9,
+    OP_DATA, 2, 0x36, 0x01,
+    OP_CMD, 0xEB,
+    OP_DATA, 7, 0x00, 0x01, 0xE4, 0xE4, 0x44, 0x88, 0x40,
+    OP_CMD, 0xED,
+    OP_DATA, 16, 0xFF, 0x10, 0xAF, 0x76, 0x54, 0x2B, 0xCF, 0xFF, 0xFF, 0xFC, 0xB2, 0x45, 0x67, 0xFA, 0x01, 0xFF,
+    OP_CMD, 0xEF,
+    OP_DATA, 6, 0x08, 0x08, 0x08, 0x45, 0x3F, 0x54,
+    OP_CMD, 0xFF,
+    OP_DATA, 5, 0x77, 0x01, 0x00, 0x00, 0x00,
+    OP_CMD, 0x11,
+    OP_DELAY, 120,
+        OP_CMD, 0x3A,
+    OP_DATA, 1, 0x66,
+    OP_CMD, 0x36,
+    OP_DATA, 1, 0x00,
+    OP_CMD, 0x35,
+    OP_DATA, 1, 0x00,
+    OP_CMD, 0x29,
+};
+
+// RGB bus settings. The first entry is exactly Waveshare's demo; the second
+// runs the pixel clock slower in case of flicker or drift.
 struct PanelType {
     const char *name;
-    const uint8_t *init;
-    size_t initLen;
-    uint16_t hsyncPol, hfp, hpw, hbp;
-    uint16_t vsyncPol, vfp, vpw, vbp;
-    uint16_t pclkNeg;
+    uint32_t pclkHz;
+    lcd_clock_source_t clkSrc;
+    size_t bounceBufferPx;
 };
 
 static const PanelType PANEL_TYPES[] = {
-    // Timings from the same demo: HPW 8, HBP 10, HFP 50, VPW 2, VBP 18, VFP 8.
-    {"Waveshare ESP32-S3-LCD-2.8C", waveshare_2_8c_init_operations, sizeof(waveshare_2_8c_init_operations),
-     1, 50, 8, 10, 1, 8, 2, 18, 0},
-    {"2.8in round (TL028WVC01)", TL028WVC01_init_operations, sizeof(TL028WVC01_init_operations),
-     1, 50, 1, 30, 1, 20, 1, 30, 0},
-    {"2.8in round (ST7701 type 6)", st7701_type6_init_operations, sizeof(st7701_type6_init_operations),
-     1, 50, 1, 30, 1, 20, 1, 30, 0},
-    {"2.1in round (TL021WVC02)", TL021WVC02_init_operations, sizeof(TL021WVC02_init_operations),
-     1, 10, 8, 50, 1, 10, 8, 20, 0},
-    {"ST7701 type 5", st7701_type5_init_operations, sizeof(st7701_type5_init_operations),
-     1, 10, 8, 50, 1, 10, 8, 20, 0},
-    {"ST7701 type 1 (original sketch)", st7701_type1_init_operations, sizeof(st7701_type1_init_operations),
-     0, 10, 8, 50, 0, 10, 8, 20, 1},
-    {"ST7701 type 9", st7701_type9_init_operations, sizeof(st7701_type9_init_operations),
-     1, 10, 8, 50, 1, 10, 8, 20, 0},
+    {"Waveshare 2.8C (30 MHz, as in the demo)", 30000000, LCD_CLK_SRC_PLL240M, 480 * 10},
+    {"Waveshare 2.8C (16 MHz)", 16000000, LCD_CLK_SRC_PLL160M, 480 * 10},
 };
 static const uint8_t PANEL_TYPE_COUNT = sizeof(PANEL_TYPES) / sizeof(PANEL_TYPES[0]);
 
@@ -191,7 +173,8 @@ inline void displayDeselect() {
 // bits), chip select held low by the expander. Bit-banging this was too fast
 // for the panel. The bus is released afterwards so the SD card can use the pins.
 // Returns 0 on success, otherwise a code saying what failed.
-inline int panelSendInit(const uint8_t *ops, size_t len, uint32_t hz = 10000000) {
+inline int panelSendInit(const uint8_t *ops = waveshare_2_8c_init_operations,
+                         size_t len = sizeof(waveshare_2_8c_init_operations), uint32_t hz = 10000000) {
     spi_bus_config_t bus = {};
     bus.mosi_io_num = 1;
     bus.miso_io_num = -1;
@@ -224,34 +207,19 @@ inline int panelSendInit(const uint8_t *ops, size_t len, uint32_t hz = 10000000)
     int result = 0;
     for (size_t i = 0; i < len && result == 0;) {
         switch (ops[i++]) {
-            case BEGIN_WRITE:
-            case END_WRITE:
-                break;
-            case WRITE_COMMAND_8:
+            case OP_CMD:
                 send(0, ops[i++]);
                 break;
-            case WRITE_DATA_8:
-                send(1, ops[i++]);
-                break;
-            case WRITE_BYTES: {
+            case OP_DATA: {
                 uint8_t n = ops[i++];
                 while (n--) send(1, ops[i++]);
                 break;
             }
-            case WRITE_C8_D8:
-                send(0, ops[i++]);
-                send(1, ops[i++]);
-                break;
-            case WRITE_C8_D16:
-                send(0, ops[i++]);
-                send(1, ops[i++]);
-                send(1, ops[i++]);
-                break;
-            case DELAY:
+            case OP_DELAY:
                 delay(ops[i++]);
                 break;
             default:
-                result = 3;  // an operation these tables don't use
+                result = 3;
         }
     }
     spi_bus_remove_device(handle);
@@ -267,34 +235,34 @@ inline const PanelType &panelType(uint8_t type) {
 // Waveshare's demo): frame buffer in PSRAM, frames pushed with
 // esp_lcd_panel_draw_bitmap(). The panel must already have its set-up
 // commands (panelSendInit).
-inline esp_lcd_panel_handle_t createPanel(uint8_t type, uint32_t pclkHz = 16000000) {
+inline esp_lcd_panel_handle_t createPanel(uint8_t type) {
     const PanelType &p = panelType(type);
     esp_lcd_rgb_panel_config_t cfg = {};
-    cfg.clk_src = LCD_CLK_SRC_PLL160M;
-    cfg.timings.pclk_hz = pclkHz;
+    cfg.clk_src = p.clkSrc;
+    cfg.timings.pclk_hz = p.pclkHz;
     cfg.timings.h_res = 480;
     cfg.timings.v_res = 480;
-    cfg.timings.hsync_pulse_width = p.hpw;
-    cfg.timings.hsync_back_porch = p.hbp;
-    cfg.timings.hsync_front_porch = p.hfp;
-    cfg.timings.vsync_pulse_width = p.vpw;
-    cfg.timings.vsync_back_porch = p.vbp;
-    cfg.timings.vsync_front_porch = p.vfp;
-    cfg.timings.flags.hsync_idle_low = p.hsyncPol == 0;
-    cfg.timings.flags.vsync_idle_low = p.vsyncPol == 0;
-    cfg.timings.flags.pclk_active_neg = p.pclkNeg;
+    cfg.timings.hsync_pulse_width = 8;
+    cfg.timings.hsync_back_porch = 10;
+    cfg.timings.hsync_front_porch = 50;
+    cfg.timings.vsync_pulse_width = 2;
+    cfg.timings.vsync_back_porch = 18;
+    cfg.timings.vsync_front_porch = 8;
+    cfg.timings.flags.pclk_active_neg = 0;
     cfg.data_width = 16;
-    cfg.sram_trans_align = 8;
+    cfg.bits_per_pixel = 16;
+    cfg.num_fbs = 1;
+    cfg.bounce_buffer_size_px = p.bounceBufferPx;
     cfg.psram_trans_align = 64;
     cfg.hsync_gpio_num = 38;
     cfg.vsync_gpio_num = 39;
     cfg.de_gpio_num = 40;
     cfg.pclk_gpio_num = 41;
+    cfg.disp_gpio_num = -1;
     const int data[16] = {5, 45, 48, 47, 21,       // B1..B5
                           14, 13, 12, 11, 10, 9,   // G0..G5
                           46, 3, 8, 18, 17};       // R1..R5
     for (int i = 0; i < 16; i++) cfg.data_gpio_nums[i] = data[i];
-    cfg.disp_gpio_num = -1;
     cfg.flags.fb_in_psram = 1;
 
     esp_lcd_panel_handle_t panel = nullptr;
