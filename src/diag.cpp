@@ -49,13 +49,10 @@ static String i2cScan() {
 }
 
 static String report() {
-    esp_chip_info_t info;
-    esp_chip_info(&info);
     String r;
     r += "Chip: " + String(ESP.getChipModel()) + " rev " + String(ESP.getChipRevision()) + "\n";
     r += "Last reset: " + String(resetReason()) + "\n";
     r += "Flash size: " + String(ESP.getFlashChipSize() / 1024 / 1024) + " MB\n";
-    r += "Chip has PSRAM: " + String((info.features & CHIP_FEATURE_EMB_PSRAM) ? "embedded" : "not embedded (may be external)") + "\n";
     r += "PSRAM in use: " + String(psramFound() ? "yes, " + String(ESP.getPsramSize() / 1024) + " KB" : String("no")) + "\n";
     r += "Free heap: " + String(ESP.getFreeHeap() / 1024) + " KB\n";
     r += "I2C devices (SDA 15, SCL 7): " + scanResult + "\n";

@@ -292,6 +292,28 @@ static String jsonString(const char *s) {
     return out + "\"";
 }
 
+// What each slot holds (0 empty, 1 picture, 2 animation), from one directory
+// listing rather than probing every file name.
+static void listSlots(uint8_t *slots) {
+    memset(slots, 0, IMAGE_SLOTS);
+    File dir = media().open(sdOk ? "/emblem" : "/");
+    if (!dir || !dir.isDirectory()) return;
+    for (File f = dir.openNextFile(); f; f = dir.openNextFile()) {
+        String name = f.name();
+        name = name.substring(name.lastIndexOf('/') + 1);
+        int slot = -1;
+        uint8_t kind = 0;
+        if (name.startsWith("anim") && name.endsWith(".mjp")) {
+            slot = name.substring(4, name.length() - 4).toInt();
+            kind = 2;
+        } else if (name.startsWith("img") && name.endsWith(".bin")) {
+            slot = name.substring(3, name.length() - 4).toInt();
+            kind = 1;
+        }
+        if (slot >= 0 && slot < IMAGE_SLOTS && kind > slots[slot]) slots[slot] = kind;
+    }
+}
+
 static void sendState() {
     String j;
     j.reserve(1024);
@@ -326,9 +348,11 @@ static void sendState() {
     }
     j += "],\"display\":" + String(displayOk ? "true" : "false");
     j += ",\"slots\":[";
+    uint8_t slots[IMAGE_SLOTS];
+    listSlots(slots);
     for (int i = 0; i < IMAGE_SLOTS; i++) {
         if (i) j += ",";
-        j += media().exists(animPath(i)) ? "2" : (media().exists(imagePath(i)) ? "1" : "0");
+        j += String(slots[i]);
     }
     j += "],\"storage\":\"" + String(sdOk ? "sd" : "flash") + "\"";
     j += ",\"fsUsedKB\":" + String(unsigned(mediaUsed() / 1024));
