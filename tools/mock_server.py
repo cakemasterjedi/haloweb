@@ -28,11 +28,11 @@ state = {
     "apSsid": "BMW-Emblem", "staSsid": "", "staIp": "", "slots": [0] * 10,
     "storage": "flash", "fsUsedKB": 0, "fsTotalKB": 12 * 1024, "animMax": ANIM_MAX,
     "panel": 0, "panels": ["18 MHz (recommended)", "30 MHz (Waveshare demo)", "12 MHz (lightest)"], "display": True,
-    "startupAnim": 1, "powerMode": 0, "autoOffMin": 0, "showHours": 0, "showBrightness": 60,
+    "startupAnim": 1, "showIp": 1, "powerMode": 0, "autoOffMin": 0, "showHours": 0, "showBrightness": 60,
     "lowVoltOn": 0, "cutoff": 12.0, "voltSource": 0, "volts": None, "offIn": -1, "lowFor": 0,
 }
 LIMITS = {"mode": (0, 4), "brightness": (5, 100), "speed": (-100, 100), "imageSlot": (0, 9),
-          "angle": (-180, 180), "spacing": (0, 30), "startupAnim": (0, 1), "powerMode": (0, 1),
+          "angle": (-180, 180), "spacing": (0, 30), "startupAnim": (0, 1), "showIp": (0, 1), "powerMode": (0, 1),
           "autoOffMin": (0, 720), "showHours": (0, 48), "showBrightness": (5, 100), "lowVoltOn": (0, 1),
           "voltSource": (0, 2)}
 TEXT = {"labelText": 16, "text": 32}

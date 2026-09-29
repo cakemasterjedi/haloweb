@@ -371,6 +371,8 @@
       <h2>Display</h2>
       <div class="row"><label for="startupAnim">Start-up animation<span class="sub">Chrome ring, spin-in and glint at power-on</span></label>
         <label class="switch"><input type="checkbox" id="startupAnim"><span></span></label></div>
+      <div class="row"><label for="showIp">Show hotspot address<span class="sub">On the emblem for 6 s when it joins your hotspot</span></label>
+        <label class="switch"><input type="checkbox" id="showIp"><span></span></label></div>
       <div class="row"><label for="panel">Panel timing</label><select id="panel"></select></div>
       <div class="split">
         <button id="savePanel">Apply &amp; restart</button>
@@ -383,7 +385,7 @@
       <p class="hint" style="margin-top:0">The emblem's own network (the one your phone joins):</p>
       <div class="row"><label for="apSsid">Name</label><input type="text" id="apSsid" maxlength="32"></div>
       <div class="row"><label for="apPass">Password</label><input type="password" id="apPass" maxlength="64" placeholder="unchanged"></div>
-      <p class="hint">Also join your phone's hotspot (optional) so your phone keeps its internet. The emblem's own network stays on.</p>
+      <p class="hint">Also join your phone's hotspot (optional) so your phone keeps its internet. The emblem's own network stays on. Open it at the address shown below or on the emblem when it connects (it's listed as "emblem" among your hotspot's devices). <i>emblem.local</i> doesn't work in Android browsers.</p>
       <div class="row"><label for="staSsid">Hotspot</label><input type="text" id="staSsid" maxlength="32"></div>
       <div class="row"><label for="staPass">Password</label><input type="password" id="staPass" maxlength="64" placeholder="unchanged"></div>
       <p class="hint" id="staInfo"></p>
@@ -590,6 +592,7 @@ function fillControls() {
   $('panel').innerHTML = (st.panels || []).map((n, i) => `<option value="${i}">${n}</option>`).join('');
   $('panel').value = st.panel;
   $('startupAnim').checked = !!st.startupAnim;
+  $('showIp').checked = !!st.showIp;
   $('displayWarn').classList.toggle('hidden', st.display !== false);
   $('staSsid').value = st.staSsid;
   $('staInfo').textContent = st.staSsid
@@ -728,6 +731,7 @@ function setupPower() {
 
 function setupSystem() {
   $('startupAnim').onchange = (e) => send({startupAnim: e.target.checked ? 1 : 0});
+  $('showIp').onchange = (e) => send({showIp: e.target.checked ? 1 : 0});
   $('saveWifi').onclick = async () => {
     const body = new URLSearchParams({apSsid: $('apSsid').value, staSsid: $('staSsid').value});
     if ($('apPass').value) body.append('apPass', $('apPass').value);

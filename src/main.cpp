@@ -44,6 +44,8 @@ static bool displayOk = false;
 static uint32_t saveAt = 0;
 static uint32_t restartAt = 0;
 static uint32_t shutdownAt = 0;
+static volatile bool hotspotJoined = false;  // set from the Wi-Fi event task
+static uint32_t messageUntil = 0;            // keep an on-screen message up until then
 
 // Power management state.
 enum SleepReason : uint8_t { SLEEP_NONE = 0, SLEEP_OFF, SLEEP_LOWV };
@@ -575,6 +577,7 @@ static void sendState() {
     const uint32_t now = millis();
     const int64_t offIn = offInMs(now);
     j += ",\"startupAnim\":" + String(settings.startupAnim);
+    j += ",\"showIp\":" + String(settings.showIp);
     j += ",\"powerMode\":" + String(settings.powerMode);
     j += ",\"autoOffMin\":" + String(settings.autoOffMin);
     j += ",\"showHours\":" + String(settings.showHours);
@@ -638,6 +641,7 @@ static void handleSet() {
     const uint8_t oldPower = settings.powerMode;
     const uint8_t oldShowBrightness = settings.showBrightness;
     if (argInt("startupAnim", 0, 1, v)) settings.startupAnim = v;
+    if (argInt("showIp", 0, 1, v)) settings.showIp = v;
     if (argInt("powerMode", 0, 1, v)) settings.powerMode = v;
     if (argInt("autoOffMin", 0, 720, v)) settings.autoOffMin = v;
     if (argInt("showHours", 0, 48, v)) settings.showHours = v;
@@ -853,6 +857,10 @@ static void setupWeb() {
 
 static void setupWifi() {
     WiFi.persistent(false);
+    // Shows up as "emblem" in the phone's list of hotspot devices. (Android
+    // browsers can't open emblem.local, so the address is also shown on screen.)
+    WiFi.setHostname("emblem");
+    WiFi.onEvent([](WiFiEvent_t, WiFiEventInfo_t) { hotspotJoined = true; }, ARDUINO_EVENT_WIFI_STA_GOT_IP);
     WiFi.mode(settings.staSsid[0] ? WIFI_AP_STA : WIFI_AP);
     WiFi.softAP(settings.apSsid, strlen(settings.apPass) >= 8 ? settings.apPass : nullptr);
     if (settings.staSsid[0]) WiFi.begin(settings.staSsid, settings.staPass);
@@ -960,7 +968,18 @@ void loop() {
         lastResync = now;
         resyncDisplay();
     }
-    if (displayOk && now - lastFrame >= FRAME_MS) {
+    // Joined the hotspot: show its address for a few seconds (after the intro).
+    if (hotspotJoined && displayOk && !renderer.introRunning()) {
+        hotspotJoined = false;
+        String ip = WiFi.localIP().toString();
+        logf("Joined \"%s\" as %s\n", settings.staSsid, ip.c_str());
+        if (settings.showIp) {
+            present(renderer.showMessage(("HOTSPOT|" + ip).c_str(), 0x4F94F0));
+            messageUntil = now + 6000;
+        }
+    }
+    if (messageUntil && int32_t(now - messageUntil) >= 0) messageUntil = 0;
+    if (displayOk && !messageUntil && now - lastFrame >= FRAME_MS) {
         lastFrame = now;
         Rect r = renderer.render(now);
         if (forceFull) {

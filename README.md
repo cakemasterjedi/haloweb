@@ -54,7 +54,7 @@ takes over (can be switched off under *Settings*).
 1. Power the board. It starts a Wi-Fi network **`BMW-Emblem`**, password **`emblem123`**.
 2. Join it from your phone. Most phones then open the control page on their
    own as a "sign in to network" page. If yours doesn't, browse to
-   **http://192.168.4.1** (or http://emblem.local).
+   **http://192.168.4.1** (http://emblem.local also works on iPhones and computers, not Android).
 3. On Android, when it warns that the network has no internet, choose
    **Stay connected**.
 4. Add the page to your home screen so it works like an app.
@@ -63,8 +63,9 @@ Under **Settings** you can:
 
 - rename the network or change its password;
 - have the board also join another network, such as your phone's hotspot, so
-  your phone keeps its internet. The page then shows the emblem's address on
-  that network;
+  your phone keeps its internet. The emblem shows its address on screen when
+  it joins (and the page shows it too). Use that address: `emblem.local`
+  doesn't work in Android browsers;
 - install firmware updates over Wi-Fi, so you don't need to reach the USB port
   once it's in the car.
 

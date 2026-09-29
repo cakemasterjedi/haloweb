@@ -39,6 +39,7 @@ struct Settings {
     int16_t angle;       // rotation offset in degrees, to line the emblem up on the car
     uint8_t panel;       // index into PANEL_TYPES (display_config.h)
     uint8_t startupAnim; // play the start-up animation at power-on
+    uint8_t showIp;      // show the hotspot address on screen when it connects
 
     // Roundel (colours are 0xRRGGBB)
     uint32_t quadA;      // top-left + bottom-right quadrants
@@ -83,6 +84,7 @@ inline void settingsDefaults(Settings &s) {
     s.angle = 0;
     s.panel = 0;
     s.startupAnim = 1;
+    s.showIp = 1;
 
     s.quadA = 0x1C69D4;
     s.quadB = 0xFFFFFF;
