@@ -315,6 +315,7 @@ static void loadImage() {
     const int slot = settings.imageSlot;
     if (media().exists(animPath(slot))) {
         renderer.imageChanged(loadAnimation(animPath(slot)));
+        resyncDisplay();
         return;
     }
     bool ok = false;
@@ -324,6 +325,7 @@ static void loadImage() {
     }
     if (f) f.close();
     renderer.imageChanged(ok);
+    resyncDisplay();  // reading flash can leave the picture shifted
 }
 
 // Shows the next animation frame when it's due.
@@ -331,6 +333,7 @@ static void stepAnimation(uint32_t now) {
     if (anim.count < 2 || settings.mode != MODE_IMAGE || int32_t(now - anim.nextAt) < 0) return;
     anim.index = (anim.index + 1) % anim.count;
     if (decodeFrame(anim.index)) renderer.imageChanged(true);
+    resyncDisplay();  // each frame is read from flash / SD
     anim.nextAt = now + max<uint16_t>(anim.delay[anim.index], 20);
 }
 
