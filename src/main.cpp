@@ -15,6 +15,7 @@
 #include <Update.h>
 #include <WebServer.h>
 #include <WiFi.h>
+#include <esp_cache.h>
 
 #include "display_config.h"
 #include "renderer.h"
@@ -34,7 +35,6 @@ static Preferences prefs;
 static WebServer server(80);
 static DNSServer dns;
 
-static uint16_t *presentBuf;  // brightness-scaled copy of the region being sent to the panel
 static uint8_t lut5[32], lut6[64];
 static bool softDim = LCD_BL_PIN < 0;
 static bool forceFull = true;
@@ -73,21 +73,55 @@ static void applyBrightness() {
     forceFull = true;
 }
 
-static void panelDraw(int x, int y, int w, int h, const uint16_t *pixels) {
-    esp_lcd_panel_draw_bitmap(panel, x, y, x + w, y + h, pixels);
+// Double buffering: the panel shows one frame buffer while we fill the other,
+// then we switch at the start of the next refresh, so a frame is never shown
+// half-drawn (that was the tearing on the spinning roundel).
+static uint16_t *fbs[2];
+static int backFb = 1;
+static SemaphoreHandle_t vsyncSem;
+
+static bool IRAM_ATTR onVsync(esp_lcd_panel_handle_t, const esp_lcd_rgb_panel_event_data_t *, void *) {
+    BaseType_t woken = pdFALSE;
+    xSemaphoreGiveFromISR(vsyncSem, &woken);
+    return woken == pdTRUE;
+}
+
+static bool setupFrameBuffers() {
+    void *a = nullptr, *b = nullptr;
+    if (esp_lcd_rgb_panel_get_frame_buffer(panel, 2, &a, &b) != ESP_OK || !a || !b) return false;
+    fbs[0] = static_cast<uint16_t *>(a);
+    fbs[1] = static_cast<uint16_t *>(b);
+    vsyncSem = xSemaphoreCreateBinary();
+    esp_lcd_rgb_panel_event_callbacks_t cbs = {};
+    cbs.on_vsync = onVsync;
+    esp_lcd_rgb_panel_register_event_callbacks(panel, &cbs, nullptr);
+    return true;
+}
+
+// Shows the back buffer: flush it from the CPU cache, hand it to the driver
+// (which switches buffers at the next vsync) and wait for that to happen, so
+// the buffer we draw into next is no longer on screen.
+static void swapBuffers() {
+    uint16_t *fb = fbs[backFb];
+    esp_cache_msync(fb, IMAGE_BYTES, ESP_CACHE_MSYNC_FLAG_DIR_C2M | ESP_CACHE_MSYNC_FLAG_UNALIGNED);
+    xSemaphoreTake(vsyncSem, 0);
+    esp_lcd_panel_draw_bitmap(panel, 0, 0, Renderer::W, Renderer::H, fb);
+    xSemaphoreTake(vsyncSem, pdMS_TO_TICKS(60));
+    backFb ^= 1;
 }
 
 // Full-screen red, green, blue, white. If these don't appear, the panel isn't
 // taking pixels at all (set-up commands or timing); if they do, the problem is
 // in drawing the emblem.
 static void showTestColours() {
-    if (!panel || !presentBuf) return;
+    if (!panel || !fbs[0]) return;
     const uint16_t colours[] = {0xF800, 0x07E0, 0x001F, 0xFFFF};
     const char *names[] = {"red", "green", "blue", "white"};
     for (int i = 0; i < 4; i++) {
         logf("Test colour: %s\n", names[i]);
-        for (int p = 0; p < Renderer::W * Renderer::H; p++) presentBuf[p] = colours[i];
-        panelDraw(0, 0, Renderer::W, Renderer::H, presentBuf);
+        uint16_t *fb = fbs[backFb];
+        for (int p = 0; p < Renderer::W * Renderer::H; p++) fb[p] = colours[i];
+        swapBuffers();
         delay(600);
     }
     forceFull = true;  // redraw the emblem afterwards
@@ -95,29 +129,22 @@ static void showTestColours() {
 
 static uint32_t framesShown = 0;
 
-static void present(Rect r) {
+// Copies the whole rendered frame (brightness-scaled if dimming in software)
+// into the back buffer and shows it. Only the changed area needs rendering,
+// but each buffer must hold a complete frame.
+static void present(Rect) {
     if (framesShown++ == 0) logf("First emblem frame sent to the display\n");
     const uint16_t *src = renderer.frame();
-    const bool scale = softDim && settings.brightness < 100;
-    if (!scale && r.x == 0 && r.w == Renderer::W) {
-        // Rows are already contiguous in the frame buffer.
-        panelDraw(0, r.y, r.w, r.h, src + r.y * Renderer::W);
-        return;
-    }
-    uint16_t *dst = presentBuf;
-    for (int y = r.y; y < r.y + r.h; y++) {
-        const uint16_t *row = src + y * Renderer::W + r.x;
-        if (!scale) {
-            memcpy(dst, row, r.w * 2);
-            dst += r.w;
-            continue;
-        }
-        for (int x = 0; x < r.w; x++) {
-            uint16_t p = row[x];
-            *dst++ = (lut5[p >> 11] << 11) | (lut6[(p >> 5) & 63] << 5) | lut5[p & 31];
+    uint16_t *dst = fbs[backFb];
+    if (!(softDim && settings.brightness < 100)) {
+        memcpy(dst, src, IMAGE_BYTES);
+    } else {
+        for (int i = 0; i < Renderer::W * Renderer::H; i++) {
+            uint16_t p = src[i];
+            dst[i] = (lut5[p >> 11] << 11) | (lut6[(p >> 5) & 63] << 5) | lut5[p & 31];
         }
     }
-    panelDraw(r.x, r.y, r.w, r.h, presentBuf);
+    swapBuffers();
 }
 
 // ---------------------------------------------------------------------------
@@ -657,8 +684,11 @@ static void setupDisplay() {
         logf("Display init failed (RGB panel)\n");
         return;
     }
-    presentBuf = static_cast<uint16_t *>(psramAlloc(IMAGE_BYTES));
-    if (!presentBuf || !renderer.begin(psramAlloc)) {
+    if (!setupFrameBuffers()) {
+        logf("Display init failed (frame buffers)\n");
+        return;
+    }
+    if (!renderer.begin(psramAlloc)) {
         logf("Out of PSRAM\n");
         return;
     }

@@ -251,7 +251,7 @@ inline esp_lcd_panel_handle_t createPanel(uint8_t type) {
     cfg.timings.flags.pclk_active_neg = 0;
     cfg.data_width = 16;
     cfg.bits_per_pixel = 16;
-    cfg.num_fbs = 1;
+    cfg.num_fbs = 2;  // double buffered: draw into one while the other is on screen
     cfg.bounce_buffer_size_px = p.bounceBufferPx;
     cfg.psram_trans_align = 64;
     cfg.hsync_gpio_num = 38;
