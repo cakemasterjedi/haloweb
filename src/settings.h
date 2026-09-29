@@ -14,7 +14,7 @@ enum Mode : uint8_t {
 };
 
 static const uint8_t IMAGE_SLOTS = 5;
-static const uint32_t SETTINGS_VERSION = 3;
+static const uint32_t SETTINGS_VERSION = 4;
 
 struct Settings {
     uint32_t version;
@@ -25,6 +25,7 @@ struct Settings {
     int8_t speed;        // -100..100, meaning depends on mode
     uint8_t imageSlot;   // 0..IMAGE_SLOTS-1
     int16_t angle;       // rotation offset in degrees, to line the emblem up on the car
+    uint8_t panel;       // index into PANEL_TYPES (display_config.h)
 
     // Roundel (colours are 0xRRGGBB)
     uint32_t quadA;      // top-left + bottom-right quadrants
@@ -60,6 +61,7 @@ inline void settingsDefaults(Settings &s) {
     s.speed = 30;
     s.imageSlot = 0;
     s.angle = 0;
+    s.panel = 0;
 
     s.quadA = 0x1C69D4;
     s.quadB = 0xFFFFFF;

@@ -33,6 +33,7 @@ static uint16_t *presentBuf;  // brightness-scaled copy of the region being sent
 static uint8_t lut5[32], lut6[64];
 static bool softDim = LCD_BL_PIN < 0;
 static bool forceFull = true;
+static bool displayOk = false;
 static uint32_t saveAt = 0;
 static uint32_t restartAt = 0;
 
@@ -44,6 +45,7 @@ static void *psramAlloc(size_t n) {
 }
 
 static void applyBrightness() {
+    if (!displayOk) return;
     uint8_t pct = constrain(settings.brightness, 5, 100);
 #if LCD_BL_PIN >= 0
     ledcWrite(0, map(pct, 0, 100, 0, 255));
@@ -85,6 +87,7 @@ static String imagePath(int slot) {
 }
 
 static void loadImage() {
+    if (!displayOk) return;
     bool ok = false;
     File f = LittleFS.open(imagePath(settings.imageSlot), "r");
     if (f && f.size() == IMAGE_BYTES) {
@@ -155,6 +158,13 @@ static void sendState() {
     j += ",\"apSsid\":" + jsonString(settings.apSsid);
     j += ",\"staSsid\":" + jsonString(settings.staSsid);
     j += ",\"staIp\":\"" + (WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString() : String()) + "\"";
+    j += ",\"panel\":" + String(settings.panel);
+    j += ",\"panels\":[";
+    for (int i = 0; i < PANEL_TYPE_COUNT; i++) {
+        if (i) j += ",";
+        j += jsonString(PANEL_TYPES[i].name);
+    }
+    j += "],\"display\":" + String(displayOk ? "true" : "false");
     j += ",\"slots\":[";
     for (int i = 0; i < IMAGE_SLOTS; i++) {
         if (i) j += ",";
@@ -212,8 +222,8 @@ static void handleSet() {
 
     if (settings.mode == MODE_IMAGE && (oldMode != MODE_IMAGE || oldSlot != settings.imageSlot)) loadImage();
     if (settings.brightness != oldBrightness) applyBrightness();
-    renderer.apply(settings);
-    if (oldMode != settings.mode && (settings.mode == MODE_ROUNDEL || settings.mode == MODE_SPIN)) {
+    if (displayOk) renderer.apply(settings);
+    if (displayOk && oldMode != settings.mode && (settings.mode == MODE_ROUNDEL || settings.mode == MODE_SPIN)) {
         renderer.startIntro(millis());
     }
     saveAt = millis() + SAVE_DELAY_MS;
@@ -251,7 +261,7 @@ static void handleImageDone() {
     settings.mode = MODE_IMAGE;
     settings.imageSlot = slot;
     loadImage();
-    renderer.apply(settings);
+    if (displayOk) renderer.apply(settings);
     saveAt = millis() + SAVE_DELAY_MS;
     sendState();
 }
@@ -261,6 +271,19 @@ static void handleImageDelete() {
     if (slot >= 0 && slot < IMAGE_SLOTS) LittleFS.remove(imagePath(slot));
     if (settings.mode == MODE_IMAGE && settings.imageSlot == slot) loadImage();
     sendState();
+}
+
+// Changing the panel type needs a restart because the panel is set up once at boot.
+static void handlePanel() {
+    long v;
+    if (!argInt("panel", 0, PANEL_TYPE_COUNT - 1, v)) {
+        server.send(400, "text/plain", "Missing panel");
+        return;
+    }
+    settings.panel = v;
+    saveSettings();
+    server.send(200, "text/plain", String("Using \"") + PANEL_TYPES[v].name + "\". Restarting...");
+    restartAt = millis() + 800;
 }
 
 static void handleWifi() {
@@ -323,6 +346,7 @@ static void setupWeb() {
     server.on("/api/image", HTTP_POST, handleImageDone, handleImageUpload);
     server.on("/api/image/delete", HTTP_POST, handleImageDelete);
     server.on("/api/wifi", HTTP_POST, handleWifi);
+    server.on("/api/panel", HTTP_POST, handlePanel);
     server.on("/api/reboot", HTTP_POST, [] {
         server.send(200, "text/plain", "Restarting...");
         restartAt = millis() + 500;
@@ -345,35 +369,58 @@ static void setupWifi() {
 
 // ---------------------------------------------------------------------------
 
-void setup() {
-    Serial.begin(115200);
-
-    displayPowerOn();
-    gfx = createDisplay();
-    if (!gfx->begin()) Serial.println("Display init failed");
-    gfx->fillScreen(RGB565_BLACK);
+// Brings up the panel. Any failure is logged and leaves displayOk false, so
+// Wi-Fi and the phone page keep working and the panel type can be changed.
+static void setupDisplay() {
+    Serial.printf("PSRAM: %s, %u bytes free\n", psramFound() ? "found" : "NOT FOUND", unsigned(ESP.getFreePsram()));
+    if (!psramFound()) {
+        Serial.println("Display needs PSRAM; check board_build.arduino.memory_type in platformio.ini");
+        return;
+    }
 
 #if LCD_BL_PIN >= 0
     ledcSetup(0, 5000, 8);
     ledcAttachPin(LCD_BL_PIN, 0);
+    ledcWrite(0, 0);  // dark until the first frame
 #endif
+
+    if (!displayPowerOn()) Serial.println("I/O expander (0x20) did not answer on I2C");
+    const uint8_t panel = settings.panel < PANEL_TYPE_COUNT ? settings.panel : 0;
+    Serial.printf("Panel type %u: %s\n", panel, PANEL_TYPES[panel].name);
+    gfx = createDisplay(panel);
+    bool ok = gfx->begin();
+    displayDeselect();
+    if (!ok) {
+        Serial.println("Display init failed");
+        return;
+    }
+    gfx->fillScreen(RGB565_BLACK);
 
     presentBuf = static_cast<uint16_t *>(psramAlloc(IMAGE_BYTES));
     if (!presentBuf || !renderer.begin(psramAlloc)) {
         Serial.println("Out of PSRAM");
-        gfx->fillScreen(RGB565_RED);
-        while (true) delay(1000);
+        return;
     }
-
-    if (!LittleFS.begin(true)) Serial.println("LittleFS mount failed");
-    loadSettings();
+    displayOk = true;
     applyBrightness();
     if (settings.mode == MODE_IMAGE) loadImage();
     renderer.apply(settings);
     if (settings.mode == MODE_ROUNDEL || settings.mode == MODE_SPIN) renderer.startIntro(millis());
+    Serial.println("Display ready");
+}
 
+void setup() {
+    Serial.begin(115200);
+    delay(1500);  // give the USB serial port time to appear so the log isn't lost
+    Serial.println("\n=== Emblem starting ===");
+
+    if (!LittleFS.begin(true)) Serial.println("LittleFS mount failed");
+    loadSettings();
+
+    // Wi-Fi first: even if the display fails, the phone page stays reachable.
     setupWifi();
     setupWeb();
+    setupDisplay();
 }
 
 void loop() {
@@ -382,7 +429,7 @@ void loop() {
 
     static uint32_t lastFrame = 0;
     uint32_t now = millis();
-    if (now - lastFrame >= FRAME_MS) {
+    if (displayOk && now - lastFrame >= FRAME_MS) {
         lastFrame = now;
         Rect r = renderer.render(now);
         if (forceFull) {
