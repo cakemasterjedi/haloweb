@@ -17,7 +17,7 @@ sys.path.insert(0, os.path.join(ROOT, "tools"))
 from embed_web import build_html  # noqa: E402
 
 IMAGE_BYTES = 480 * 480 * 2
-ANIM_MAX = 3 * 1024 * 1024
+ANIM_MAX = int(os.environ.get("MOCK_ANIM_MAX", 8 * 1024 * 1024))
 SAVE_DIR = os.environ.get("MOCK_SAVE_DIR")  # keep uploaded files here, if set
 state = {
     "mode": 0, "brightness": 80, "speed": 30, "imageSlot": 0, "angle": 0,
@@ -25,10 +25,10 @@ state = {
     "labelText": "BMW", "spacing": 12,
     "stripe1": "#3FA9F5", "stripe2": "#1B3D8F", "stripe3": "#E22718", "stripeBg": "#101214",
     "solid": "#1C69D4", "textBg": "#000000", "textFg": "#FFFFFF", "text": "M|POWER",
-    "apSsid": "BMW-Emblem", "staSsid": "", "staIp": "", "slots": [0, 0, 0, 0, 0],
-    "fsUsed": 0, "fsTotal": 9 * 1024 * 1024, "animMax": ANIM_MAX, "panel": 0, "panels": ["2.8in round (TL028WVC01)", "2.8in round (ST7701 type 6)"], "display": True,
+    "apSsid": "BMW-Emblem", "staSsid": "", "staIp": "", "slots": [0] * 10,
+    "storage": "flash", "fsUsedKB": 0, "fsTotalKB": 12 * 1024, "animMax": ANIM_MAX, "panel": 0, "panels": ["2.8in round (TL028WVC01)", "2.8in round (ST7701 type 6)"], "display": True,
 }
-LIMITS = {"mode": (0, 5), "brightness": (5, 100), "speed": (-100, 100), "imageSlot": (0, 4),
+LIMITS = {"mode": (0, 5), "brightness": (5, 100), "speed": (-100, 100), "imageSlot": (0, 9),
           "angle": (-180, 180), "spacing": (0, 30)}
 TEXT = {"labelText": 16, "text": 32}
 
@@ -63,7 +63,7 @@ class Handler(BaseHTTPRequestHandler):
             with open(os.path.join(SAVE_DIR, "slot%d.%s" % (slot, "mjp" if kind == 2 else "bin")), "wb") as f:
                 f.write(data)
         state["slots"][slot] = kind
-        state["fsUsed"] += len(data)
+        state["fsUsedKB"] += len(data) // 1024
         state["mode"], state["imageSlot"] = 4, slot
         self.state()
 
@@ -94,14 +94,14 @@ class Handler(BaseHTTPRequestHandler):
         elif url.path == "/api/image":
             data = self.multipart_file()
             slot = int(query.get("slot", 0))
-            if len(data) != IMAGE_BYTES or not 0 <= slot < 5:
+            if len(data) != IMAGE_BYTES or not 0 <= slot < 10:
                 self.reply(400, "Expected a 480x480 RGB565 image (%d bytes)" % IMAGE_BYTES, "text/plain")
                 return
             self.store(slot, 1, data)
         elif url.path == "/api/anim":
             data = self.multipart_file()
             slot = int(query.get("slot", 0))
-            if len(data) > ANIM_MAX or data[:4] != b"EMJ1" or not 0 <= slot < 5:
+            if len(data) > ANIM_MAX or data[:4] != b"EMJ1" or not 0 <= slot < 10:
                 self.reply(400, "Not a valid animation", "text/plain")
                 return
             self.store(slot, 2, data)

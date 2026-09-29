@@ -15,6 +15,13 @@
 #define EXIO_LCD_RST 0  // EXIO1
 #define EXIO_TP_RST 1   // EXIO2
 #define EXIO_LCD_CS 2   // EXIO3
+#define EXIO_SD_D3 3    // EXIO4
+
+// Micro SD card (SD_MMC, 1-bit mode). CLK/CMD are shared with the display's
+// set-up bus, which is only used once at boot.
+#define SD_CLK 2
+#define SD_CMD 1
+#define SD_D0 42
 
 // Backlight PWM pin. Set to -1 to dim in software instead.
 #ifndef LCD_BL_PIN

@@ -15,7 +15,7 @@ there's no app to install.
 | **Spin** | Roundel with the quarters rotating | spin speed / direction |
 | **M Stripes** | Tri-colour stripes on a carbon-weave background | 0 = static, otherwise scrolls |
 | **Colour** | Solid colour | 0 = steady, otherwise breathes |
-| **Picture** | Photos, GIFs or videos from your phone (5 slots). Fill / Fit / Fit circle, zoom (pinch), drag, rotate. Animations play at up to ~15 fps | – |
+| **Picture** | Photos, GIFs or videos from your phone (10 slots). Fill / Fit / Fit circle, zoom (pinch), drag, rotate. Animations play at up to ~15 fps | – |
 | **Text** | Your own text, `\|` starts a new line (e.g. `M\|POWER`) | – |
 
 All modes also have **brightness** and **rotation**. Use rotation to level the
@@ -72,8 +72,14 @@ g++ -O2 -std=c++17 -Isrc tools/host_preview.cpp src/renderer.cpp -o preview && .
   frame.
 - **Videos** (MP4, WebM, MOV): pick the frame rate (10–25 fps) and length
   (up to 15 s).
-- Each animation can be up to 3 MB. The page lowers the quality, then drops
-  frames, until it fits. The storage line under the slots shows free space.
+- **Size limits:** animations play straight from storage, so the limit is free
+  space. Internal flash (~12 MB) allows up to 8 MB per animation; a micro SD
+  card allows up to 32 MB. If a clip is too big, the page lowers the quality,
+  then drops frames, until it fits. The line under the slots shows which
+  storage is in use and how much is free.
+- **Micro SD card:** optional. Insert it (FAT32) *before* powering up; the
+  emblem then stores pictures in an `/emblem` folder on the card. Without a
+  card it uses the internal flash. Pictures on one aren't copied to the other.
 
 ## Hardware notes
 

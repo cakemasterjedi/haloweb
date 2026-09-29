@@ -156,7 +156,7 @@
       <div class="row"><label for="cropBg">Background</label><input type="color" id="cropBg" value="#000000" style="height:36px;flex:0 0 60px;border:none;background:none"></div>
       <div class="row hidden" id="fpsRow"><label for="fps">Frame rate</label>
         <select id="fps"><option value="10">10 fps</option><option value="15" selected>15 fps</option><option value="20">20 fps</option><option value="25">25 fps</option></select></div>
-      <div class="row hidden" id="lenRow"><label for="maxLen">Length</label><input type="range" id="maxLen" min="1" max="15" value="6"><output id="lenOut">6 s</output></div>
+      <div class="row hidden" id="lenRow"><label for="maxLen">Length</label><input type="range" id="maxLen" min="1" max="60" value="8"><output id="lenOut">8 s</output></div>
       <p class="hint">Drag to position. Pinch or use Zoom to resize.</p>
       <div class="split">
         <button id="rot">Rotate 90°</button>
@@ -352,7 +352,7 @@ function updateUi() {
 // Photos are sent as raw 480x480 RGB565. GIFs / animated WebP and videos are
 // turned into a sequence of 480x480 JPEG frames ("EMJ1" file, see main.cpp).
 
-const MAX_FRAMES = 240;
+const MAX_FRAMES = 1200;
 const IMAGE_SIZE = 480;
 
 function thumbKey(i) { return 'emblem-thumb-' + i; }
@@ -371,9 +371,11 @@ function renderSlots() {
     b.onclick = () => send({imageSlot: i, mode: 4});
     el.appendChild(b);
   }
-  if (st.fsTotal) {
-    const mb = (n) => (n / 1048576).toFixed(1);
-    $('storage').textContent = `Storage: ${mb(st.fsUsed)} of ${mb(st.fsTotal)} MB used`;
+  if (st.fsTotalKB) {
+    const mb = (kb) => (kb / 1024).toFixed(kb < 10240 ? 1 : 0);
+    const where = st.storage === 'sd' ? 'Micro SD card' : 'Internal storage';
+    $('storage').textContent = `${where}: ${mb(st.fsUsedKB)} of ${mb(st.fsTotalKB)} MB used · ` +
+      `animations up to ${mb(st.animMax / 1024)} MB`;
   }
 }
 
@@ -573,6 +575,18 @@ async function encodeAnimation(src, canvas) {
   const budget = (st.animMax || 3145728) - 4096;
   const count = src.count;
   let quality = 0.8, step = 1;
+  // Size up a few sample frames first so big clips usually need one pass.
+  if (count > 12) {
+    let sample = 0;
+    const picks = [0, 0.25, 0.5, 0.75, 0.95].map((f) => Math.floor(f * (count - 1)));
+    for (const i of picks) {
+      drawCrop(ctx, (await src.frame(i)).image);
+      sample += (await toBlob(canvas, 'image/jpeg', quality)).size + 8;
+    }
+    const estimate = () => sample / picks.length * Math.ceil(count / step) * (quality < 0.8 ? quality / 0.8 : 1) * 1.1;
+    while (estimate() > budget && quality > 0.5) quality -= 0.15;
+    while (estimate() > budget && Math.ceil(count / step) > 2) step *= 2;
+  }
   for (let attempt = 1; ; attempt++) {
     const jpegs = [];
     let total = 8;
@@ -622,7 +636,11 @@ function setupPictures() {
     $('zoom').value = 100;
     $('fpsRow').classList.toggle('hidden', crop.src.kind !== 'video');
     $('lenRow').classList.toggle('hidden', crop.src.kind !== 'video');
-    if (crop.src.kind === 'video') $('maxLen').max = Math.max(1, Math.ceil(Math.min(crop.src.duration, 15)));
+    if (crop.src.kind === 'video') {
+      $('maxLen').max = Math.max(1, Math.ceil(Math.min(crop.src.duration, 60)));
+      $('maxLen').value = Math.min(+$('maxLen').value, +$('maxLen').max);
+      $('lenOut').textContent = $('maxLen').value + ' s';
+    }
     $('cropper').classList.remove('hidden');
     runPreview(crop.src);
   };
@@ -673,6 +691,7 @@ function setupPictures() {
     $('upload').disabled = true;
     crop.preview = null;  // pause the preview while encoding
     try {
+      Object.assign(st, await api('/api/state'));  // current free space
       const form = new FormData();
       let url;
       if (src.kind === 'photo') {
