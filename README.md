@@ -80,12 +80,11 @@ g++ -O2 -std=c++17 -Isrc tools/host_preview.cpp src/renderer.cpp -o preview && .
 - **Hardware check:** `pio run -e diag -t upload` flashes a test that skips
   the display, starts an open `EMBLEM-TEST` network and reports chip, PSRAM
   and I2C details over serial and at http://192.168.4.1.
-
-- **Pins** are in `include/display_config.h`. They were taken from the
-  original test sketch.
-- **Brightness** is done in software by default. If your board has the
-  backlight on a PWM pin (GPIO6 on most of these Waveshare boards), add
-  `-DLCD_BL_PIN=6` to `build_flags` to get real backlight dimming.
+- **Pins** are in `include/display_config.h`.
+- **Backlight / brightness** uses PWM on GPIO6. If your board doesn't have the
+  backlight there, add `-DLCD_BL_PIN=-1` to `build_flags` to dim in software.
+- **Panel type:** if the screen stays black or the colours look wrong, pick
+  another panel type under *Wi-Fi & system* on the phone page.
 - **Power in the car:** use a 12 V → 5 V USB buck converter on a switched
   (ignition) feed so it doesn't drain the battery. Fuse it.
 - **Mounting:** the display isn't weatherproof. Behind a clear, sealed cover
