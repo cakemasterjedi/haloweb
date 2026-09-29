@@ -1,0 +1,632 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0b0d10">
+<title>Emblem</title>
+<style>
+  :root {
+    --bg: #0b0d10;
+    --card: #15181d;
+    --line: #262a31;
+    --text: #e8eaed;
+    --muted: #8b919a;
+    --accent: #1c69d4;
+    --danger: #e22718;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    padding: env(safe-area-inset-top) 0 40px;
+  }
+  main { max-width: 520px; margin: 0 auto; padding: 0 16px; }
+  header { display: flex; align-items: center; justify-content: space-between; padding: 14px 0 6px; }
+  h1 { font-size: 20px; margin: 0; letter-spacing: .5px; }
+  .status { font-size: 13px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: #666; }
+  .dot.ok { background: #2ecc71; }
+  .dot.bad { background: var(--danger); }
+  .preview { display: flex; justify-content: center; padding: 10px 0 14px; }
+  #preview { width: min(72vw, 280px); aspect-ratio: 1; border-radius: 50%; background: #000;
+    box-shadow: 0 0 0 6px #1b1e24, 0 12px 40px rgba(0,0,0,.6); }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px; margin-bottom: 12px; }
+  .card h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin: 0 0 10px; font-weight: 600; }
+  .modes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  button, .btn {
+    font: inherit; color: var(--text); background: #1f232a; border: 1px solid var(--line);
+    border-radius: 10px; padding: 10px 8px; cursor: pointer; text-align: center;
+  }
+  button:active { transform: scale(.98); }
+  button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; width: 100%; }
+  button.danger { color: var(--danger); }
+  .row { display: flex; align-items: center; gap: 12px; margin: 10px 0; }
+  .row label { flex: 0 0 96px; color: var(--muted); font-size: 14px; }
+  .row input[type=range] { flex: 1; }
+  .row output { flex: 0 0 42px; text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); font-size: 13px; }
+  input[type=range] { accent-color: var(--accent); height: 28px; }
+  input[type=text], input[type=password] {
+    flex: 1; min-width: 0; font: inherit; color: var(--text); background: #0f1115;
+    border: 1px solid var(--line); border-radius: 10px; padding: 10px;
+  }
+  .colors { display: grid; grid-template-columns: repeat(auto-fill, minmax(90px, 1fr)); gap: 10px; }
+  .swatch { display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 12px; color: var(--muted); }
+  .swatch input { width: 100%; height: 42px; border: 1px solid var(--line); border-radius: 10px; background: none; padding: 2px; }
+  .chips { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; margin-bottom: 6px; }
+  .chips button { flex: 0 0 auto; padding: 8px 12px; display: flex; align-items: center; gap: 6px; font-size: 14px; }
+  .mini { width: 18px; height: 18px; border-radius: 50%; }
+  .slots { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
+  .slot { aspect-ratio: 1; border-radius: 50%; padding: 0; overflow: hidden; position: relative; font-size: 12px; color: var(--muted); }
+  .slot img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .slot.on { outline: 3px solid var(--accent); outline-offset: 2px; background: #1f232a; color: var(--text); }
+  #crop { width: 100%; max-width: 240px; aspect-ratio: 1; border-radius: 50%; display: block; margin: 10px auto; background: #000; touch-action: none; }
+  .hint { color: var(--muted); font-size: 13px; margin: 6px 0; }
+  .hidden { display: none !important; }
+  details summary { cursor: pointer; color: var(--muted); font-size: 13px; text-transform: uppercase; letter-spacing: 1px; font-weight: 600; }
+  .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: #22262d; border: 1px solid var(--line);
+    padding: 10px 16px; border-radius: 10px; font-size: 14px; opacity: 0; transition: opacity .2s; pointer-events: none; max-width: 90vw; }
+  .toast.show { opacity: 1; }
+  .split { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Emblem</h1>
+    <div class="status"><span class="dot" id="dot"></span><span id="statusText">Connecting…</span></div>
+  </header>
+
+  <div class="preview"><canvas id="preview" width="480" height="480"></canvas></div>
+
+  <section class="card">
+    <h2>Mode</h2>
+    <div class="modes" id="modes"></div>
+  </section>
+
+  <section class="card">
+    <h2>Display</h2>
+    <div class="row"><label for="brightness">Brightness</label><input type="range" id="brightness" min="5" max="100"><output data-for="brightness"></output></div>
+    <div class="row" id="speedRow"><label for="speed" id="speedLabel">Speed</label><input type="range" id="speed" min="-100" max="100"><output data-for="speed"></output></div>
+    <div class="row"><label for="angle">Rotation</label><input type="range" id="angle" min="-180" max="180"><output data-for="angle"></output></div>
+  </section>
+
+  <section class="card panel" data-modes="0,1">
+    <h2>Roundel</h2>
+    <div class="chips" id="roundelPresets"></div>
+    <div class="colors">
+      <div class="swatch"><input type="color" id="quadA">Quarter A</div>
+      <div class="swatch"><input type="color" id="quadB">Quarter B</div>
+      <div class="swatch"><input type="color" id="ring">Ring</div>
+      <div class="swatch"><input type="color" id="rim">Chrome</div>
+      <div class="swatch"><input type="color" id="label">Letters</div>
+    </div>
+    <div class="row"><label for="labelText">Letters</label><input type="text" id="labelText" maxlength="16" autocapitalize="characters" spellcheck="false"></div>
+    <div class="row"><label for="spacing">Spacing</label><input type="range" id="spacing" min="0" max="30"><output data-for="spacing"></output></div>
+  </section>
+
+  <section class="card panel" data-modes="2">
+    <h2>Stripes</h2>
+    <div class="chips" id="stripePresets"></div>
+    <div class="colors">
+      <div class="swatch"><input type="color" id="stripe1">Stripe 1</div>
+      <div class="swatch"><input type="color" id="stripe2">Stripe 2</div>
+      <div class="swatch"><input type="color" id="stripe3">Stripe 3</div>
+      <div class="swatch"><input type="color" id="stripeBg">Background</div>
+    </div>
+    <p class="hint">Speed 0 shows a single set of stripes; any other speed scrolls them.</p>
+  </section>
+
+  <section class="card panel" data-modes="3">
+    <h2>Colour</h2>
+    <div class="colors"><div class="swatch"><input type="color" id="solid">Colour</div></div>
+    <p class="hint">Speed above 0 makes it breathe.</p>
+  </section>
+
+  <section class="card panel" data-modes="4">
+    <h2>Pictures</h2>
+    <div class="slots" id="slots"></div>
+    <p class="hint">Tap a slot to show it. Pick a photo to put in the selected slot.</p>
+    <input type="file" id="file" accept="image/*" class="hidden">
+    <div class="split">
+      <button id="pick">Choose photo…</button>
+      <button id="del" class="danger">Delete slot</button>
+    </div>
+    <div id="cropper" class="hidden">
+      <canvas id="crop" width="480" height="480"></canvas>
+      <div class="row"><label for="zoom">Zoom</label><input type="range" id="zoom" min="100" max="400" value="100"></div>
+      <p class="hint">Drag the picture to position it.</p>
+      <div class="split">
+        <button id="rot">Rotate 90°</button>
+        <button id="upload" class="primary">Send to emblem</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="card panel" data-modes="5">
+    <h2>Text</h2>
+    <div class="row"><label for="text">Text</label><input type="text" id="text" maxlength="32" autocapitalize="characters" spellcheck="false"></div>
+    <p class="hint">Use | for a new line, e.g. M|POWER</p>
+    <div class="colors">
+      <div class="swatch"><input type="color" id="textFg">Text</div>
+      <div class="swatch"><input type="color" id="textBg">Background</div>
+    </div>
+  </section>
+
+  <section class="card">
+    <details>
+      <summary>Wi-Fi &amp; system</summary>
+      <p class="hint">Emblem network (the one your phone joins):</p>
+      <div class="row"><label for="apSsid">Name</label><input type="text" id="apSsid" maxlength="32"></div>
+      <div class="row"><label for="apPass">Password</label><input type="password" id="apPass" maxlength="64" placeholder="unchanged"></div>
+      <p class="hint">Also join another network, e.g. your phone's hotspot (optional). The emblem's own network stays on.</p>
+      <div class="row"><label for="staSsid">Network</label><input type="text" id="staSsid" maxlength="32"></div>
+      <div class="row"><label for="staPass">Password</label><input type="password" id="staPass" maxlength="64" placeholder="unchanged"></div>
+      <p class="hint" id="staInfo"></p>
+      <button class="primary" id="saveWifi">Save &amp; restart</button>
+      <p class="hint" style="margin-top:16px">Firmware update (.bin from PlatformIO):</p>
+      <input type="file" id="fw" accept=".bin">
+      <div class="split" style="margin-top:10px">
+        <button id="flash">Update firmware</button>
+        <button id="reboot">Restart</button>
+      </div>
+    </details>
+  </section>
+</main>
+<div class="toast" id="toast"></div>
+
+<script>
+// Stroke font, filled in from src/stroke_font.h by tools/embed_web.py.
+const FONT = /*FONT*/{};
+
+const MODES = ['Roundel', 'Spin', 'M Stripes', 'Colour', 'Picture', 'Text'];
+const SPEED_LABEL = {1: 'Spin speed', 2: 'Scroll', 3: 'Pulse'};
+const COLOR_KEYS = ['quadA', 'quadB', 'ring', 'rim', 'label', 'stripe1', 'stripe2', 'stripe3', 'stripeBg', 'solid', 'textFg', 'textBg'];
+const RANGE_KEYS = ['brightness', 'speed', 'angle', 'spacing'];
+const TEXT_KEYS = ['labelText', 'text'];
+
+const ROUNDEL_PRESETS = [
+  {name: 'Classic', quadA: '#1C69D4', quadB: '#FFFFFF', ring: '#000000', rim: '#B8BCC2', label: '#FFFFFF'},
+  {name: 'Blackout', quadA: '#161616', quadB: '#3A3A3A', ring: '#000000', rim: '#303030', label: '#8A8A8A'},
+  {name: 'Motorsport', quadA: '#1B3D8F', quadB: '#E22718', ring: '#000000', rim: '#B8BCC2', label: '#FFFFFF'},
+  {name: 'Carbon', quadA: '#1E1E1E', quadB: '#C8C8C8', ring: '#0A0A0A', rim: '#8C8C8C', label: '#C8C8C8'},
+  {name: 'Gold', quadA: '#0F3E8C', quadB: '#F5F1E6', ring: '#000000', rim: '#C9A04B', label: '#C9A04B'},
+];
+const STRIPE_PRESETS = [
+  {name: 'M', stripe1: '#3FA9F5', stripe2: '#1B3D8F', stripe3: '#E22718', stripeBg: '#101214'},
+  {name: 'Stealth', stripe1: '#5A5A5A', stripe2: '#3A3A3A', stripe3: '#E22718', stripeBg: '#0A0A0A'},
+  {name: 'Heritage', stripe1: '#6FB6E8', stripe2: '#2A2D7C', stripe3: '#D52B1E', stripeBg: '#F2F2F2'},
+];
+
+const $ = (id) => document.getElementById(id);
+let st = null;  // last known device state
+let online = false;
+
+// ---------------------------------------------------------------- device I/O
+
+function toast(msg, ms = 2200) {
+  const t = $('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toast.timer);
+  toast.timer = setTimeout(() => t.classList.remove('show'), ms);
+}
+
+function setOnline(ok, text) {
+  online = ok;
+  $('dot').className = 'dot ' + (ok ? 'ok' : 'bad');
+  $('statusText').textContent = text || (ok ? 'Connected' : 'Offline');
+}
+
+async function api(path, body) {
+  const opts = body ? {method: 'POST', body} : {};
+  const r = await fetch(path, opts);
+  if (!r.ok) throw new Error(await r.text() || r.statusText);
+  const type = r.headers.get('content-type') || '';
+  return type.includes('json') ? r.json() : r.text();
+}
+
+async function loadState() {
+  try {
+    st = await api('/api/state');
+    setOnline(true);
+    fillControls();
+  } catch (e) {
+    setOnline(false, 'Not connected');
+    setTimeout(loadState, 3000);
+  }
+}
+
+const pending = {};
+let sendTimer = null;
+function send(changes) {
+  Object.assign(pending, changes);
+  Object.assign(st, changes);
+  updateUi();
+  clearTimeout(sendTimer);
+  sendTimer = setTimeout(flush, 120);
+}
+
+let inFlight = false;
+async function flush() {
+  if (inFlight) { sendTimer = setTimeout(flush, 80); return; }
+  const body = new URLSearchParams();
+  for (const k in pending) body.append(k, pending[k]);
+  for (const k in pending) delete pending[k];
+  if (![...body.keys()].length) return;
+  inFlight = true;
+  try {
+    const s = await api('/api/set', body);
+    st.slots = s.slots;
+    st.staIp = s.staIp;
+    setOnline(true);
+    renderSlots();
+  } catch (e) {
+    setOnline(false, 'Send failed');
+  } finally {
+    inFlight = false;
+  }
+}
+
+// ---------------------------------------------------------------- controls
+
+function buildControls() {
+  MODES.forEach((name, i) => {
+    const b = document.createElement('button');
+    b.textContent = name;
+    b.dataset.mode = i;
+    b.onclick = () => send({mode: i});
+    $('modes').appendChild(b);
+  });
+
+  for (const k of RANGE_KEYS) $(k).addEventListener('input', (e) => send({[k]: +e.target.value}));
+  for (const k of COLOR_KEYS) $(k).addEventListener('input', (e) => send({[k]: e.target.value.toUpperCase()}));
+  for (const k of TEXT_KEYS) $(k).addEventListener('input', (e) => send({[k]: e.target.value.toUpperCase()}));
+
+  const chips = (el, presets, keys) => presets.forEach((p) => {
+    const b = document.createElement('button');
+    const dots = keys.slice(0, 2).map((k) => `<span class="mini" style="background:${p[k]}"></span>`).join('');
+    b.innerHTML = dots + p.name;
+    b.onclick = () => { const c = {...p}; delete c.name; send(c); fillControls(); };
+    $(el).appendChild(b);
+  });
+  chips('roundelPresets', ROUNDEL_PRESETS, ['quadA', 'quadB']);
+  chips('stripePresets', STRIPE_PRESETS, ['stripe1', 'stripe3']);
+}
+
+function fillControls() {
+  for (const k of [...RANGE_KEYS, ...TEXT_KEYS]) $(k).value = st[k];
+  for (const k of COLOR_KEYS) $(k).value = st[k].toLowerCase();
+  $('apSsid').value = st.apSsid;
+  $('staSsid').value = st.staSsid;
+  $('staInfo').textContent = st.staSsid
+    ? (st.staIp ? `Joined "${st.staSsid}" — also reachable at http://${st.staIp}` : `Not connected to "${st.staSsid}" right now.`)
+    : '';
+  renderSlots();
+  updateUi();
+}
+
+function updateUi() {
+  document.querySelectorAll('#modes button').forEach((b) => b.classList.toggle('on', +b.dataset.mode === st.mode));
+  document.querySelectorAll('.panel').forEach((p) => p.classList.toggle('hidden', !p.dataset.modes.split(',').includes(String(st.mode))));
+  $('speedRow').classList.toggle('hidden', !SPEED_LABEL[st.mode]);
+  $('speedLabel').textContent = SPEED_LABEL[st.mode] || 'Speed';
+  document.querySelectorAll('output').forEach((o) => {
+    const k = o.dataset.for;
+    o.textContent = st[k] + (k === 'brightness' ? '%' : k === 'angle' ? '°' : '');
+  });
+}
+
+// ---------------------------------------------------------------- pictures
+
+function thumbKey(i) { return 'emblem-thumb-' + i; }
+function getThumb(i) { try { return localStorage.getItem(thumbKey(i)); } catch (e) { return null; } }
+function setThumb(i, v) { try { v ? localStorage.setItem(thumbKey(i), v) : localStorage.removeItem(thumbKey(i)); } catch (e) {} }
+
+function renderSlots() {
+  const el = $('slots');
+  el.innerHTML = '';
+  for (let i = 0; i < st.slots.length; i++) {
+    const b = document.createElement('button');
+    b.className = 'slot' + (i === st.imageSlot ? ' on' : '');
+    const t = st.slots[i] && getThumb(i);
+    b.innerHTML = t ? `<img src="${t}" alt="">` : (st.slots[i] ? `#${i + 1}` : `+`);
+    b.onclick = () => send({imageSlot: i, mode: 4});
+    el.appendChild(b);
+  }
+}
+
+const crop = {img: null, zoom: 1, rot: 0, dx: 0, dy: 0};
+
+function drawCrop(ctx, size) {
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, size, size);
+  if (!crop.img) return;
+  const {img} = crop;
+  const turned = crop.rot % 180 !== 0;
+  const iw = turned ? img.height : img.width;
+  const ih = turned ? img.width : img.height;
+  const k = Math.max(size / iw, size / ih) * crop.zoom;
+  ctx.save();
+  ctx.translate(size / 2 + crop.dx * size, size / 2 + crop.dy * size);
+  ctx.rotate(crop.rot * Math.PI / 180);
+  ctx.scale(k, k);
+  ctx.drawImage(img, -img.width / 2, -img.height / 2);
+  ctx.restore();
+}
+
+function refreshCrop() { drawCrop($('crop').getContext('2d'), 480); }
+
+function setupPictures() {
+  $('pick').onclick = () => $('file').click();
+  $('file').onchange = () => {
+    const f = $('file').files[0];
+    if (!f) return;
+    const img = new Image();
+    img.onload = () => {
+      Object.assign(crop, {img, zoom: 1, rot: 0, dx: 0, dy: 0});
+      $('zoom').value = 100;
+      $('cropper').classList.remove('hidden');
+      refreshCrop();
+    };
+    img.src = URL.createObjectURL(f);
+  };
+  $('zoom').oninput = (e) => { crop.zoom = e.target.value / 100; refreshCrop(); };
+  $('rot').onclick = () => { crop.rot = (crop.rot + 90) % 360; refreshCrop(); };
+
+  let drag = null;
+  const c = $('crop');
+  c.addEventListener('pointerdown', (e) => { drag = {x: e.clientX, y: e.clientY, dx: crop.dx, dy: crop.dy}; c.setPointerCapture(e.pointerId); });
+  c.addEventListener('pointermove', (e) => {
+    if (!drag) return;
+    const w = c.getBoundingClientRect().width;
+    crop.dx = drag.dx + (e.clientX - drag.x) / w;
+    crop.dy = drag.dy + (e.clientY - drag.y) / w;
+    refreshCrop();
+  });
+  c.addEventListener('pointerup', () => { drag = null; });
+
+  $('upload').onclick = async () => {
+    const slot = st.imageSlot;
+    const cv = document.createElement('canvas');
+    cv.width = cv.height = 480;
+    const ctx = cv.getContext('2d');
+    drawCrop(ctx, 480);
+    const d = ctx.getImageData(0, 0, 480, 480).data;
+    const px = new Uint16Array(480 * 480);  // RGB565, little-endian like the ESP32
+    for (let i = 0; i < px.length; i++) {
+      px[i] = ((d[i * 4] & 0xF8) << 8) | ((d[i * 4 + 1] & 0xFC) << 3) | (d[i * 4 + 2] >> 3);
+    }
+    const t = document.createElement('canvas');
+    t.width = t.height = 96;
+    t.getContext('2d').drawImage(cv, 0, 0, 96, 96);
+    const form = new FormData();
+    form.append('file', new Blob([px.buffer], {type: 'application/octet-stream'}), 'image.bin');
+    $('upload').disabled = true;
+    toast('Sending picture…', 10000);
+    try {
+      const s = await api('/api/image?slot=' + slot, form);
+      setThumb(slot, t.toDataURL('image/jpeg', 0.7));
+      st = s;
+      fillControls();
+      $('cropper').classList.add('hidden');
+      toast('Picture sent');
+    } catch (e) {
+      toast('Upload failed: ' + e.message, 4000);
+    } finally {
+      $('upload').disabled = false;
+    }
+  };
+
+  $('del').onclick = async () => {
+    if (!confirm('Delete picture in slot ' + (st.imageSlot + 1) + '?')) return;
+    try {
+      st = await api('/api/image/delete?slot=' + st.imageSlot, new URLSearchParams());
+      setThumb(st.imageSlot, null);
+      fillControls();
+    } catch (e) { toast('Delete failed'); }
+  };
+}
+
+// ---------------------------------------------------------------- system
+
+function setupSystem() {
+  $('saveWifi').onclick = async () => {
+    const body = new URLSearchParams({apSsid: $('apSsid').value, staSsid: $('staSsid').value});
+    if ($('apPass').value) body.append('apPass', $('apPass').value);
+    if ($('staPass').value || !$('staSsid').value) body.append('staPass', $('staPass').value);
+    try {
+      toast(await api('/api/wifi', body), 5000);
+      setOnline(false, 'Restarting…');
+      setTimeout(loadState, 6000);
+    } catch (e) { toast(e.message, 5000); }
+  };
+  $('reboot').onclick = async () => {
+    try { await api('/api/reboot', new URLSearchParams()); } catch (e) {}
+    setOnline(false, 'Restarting…');
+    setTimeout(loadState, 6000);
+  };
+  $('flash').onclick = async () => {
+    const f = $('fw').files[0];
+    if (!f) { toast('Choose a firmware .bin first'); return; }
+    const form = new FormData();
+    form.append('firmware', f, f.name);
+    toast('Updating… keep the phone close', 60000);
+    try {
+      toast(await api('/update', form), 5000);
+      setOnline(false, 'Restarting…');
+      setTimeout(loadState, 8000);
+    } catch (e) { toast('Update failed: ' + e.message, 5000); }
+  };
+}
+
+// ---------------------------------------------------------------- preview
+// Mirrors src/renderer.cpp closely enough to see what the emblem will look like.
+
+const C = 240;
+const LABEL_BASE = 165, LABEL_SCALE = 7, LABEL_STROKE = 1.5;
+const thumbCache = {};
+
+function layout(text, tracking) {
+  let x = 0;
+  const glyphs = [];
+  for (const ch of text.toUpperCase()) {
+    const g = FONT[ch] || FONT[' '] || [3, ''];
+    const strokes = g[1].split(' ').filter(Boolean).map((s) => {
+      const pts = [];
+      for (let i = 0; i + 1 < s.length; i += 2) pts.push([x + +s[i], +s[i + 1]]);
+      return pts;
+    });
+    glyphs.push(...strokes);
+    x += g[0] + tracking;
+  }
+  return {strokes: glyphs, width: text.length ? x - tracking : 0};
+}
+
+function strokePaths(ctx, strokes, map) {
+  ctx.beginPath();
+  for (const pts of strokes) {
+    if (pts.length === 1) {
+      const [x, y] = map(pts[0][0], pts[0][1]);
+      ctx.moveTo(x, y);
+      ctx.lineTo(x + 0.01, y);
+      continue;
+    }
+    for (let i = 0; i < pts.length - 1; i++) {
+      const [a, b] = [pts[i], pts[i + 1]];
+      for (let s = 0; s <= 8; s++) {  // subdivide so lines bend around the ring
+        const [x, y] = map(a[0] + (b[0] - a[0]) * s / 8, a[1] + (b[1] - a[1]) * s / 8);
+        (i === 0 && s === 0) ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+      }
+    }
+  }
+  ctx.stroke();
+}
+
+function chromeFill(ctx, color) {
+  const g = ctx.createLinearGradient(40, 40, 440, 440);
+  g.addColorStop(0, '#ffffff');
+  g.addColorStop(0.3, color);
+  g.addColorStop(1, shade(color, 0.45));
+  return g;
+}
+
+function shade(hex, f) {
+  const n = parseInt(hex.slice(1), 16);
+  const c = (v) => Math.round(Math.min(255, v * f)).toString(16).padStart(2, '0');
+  return '#' + c(n >> 16) + c((n >> 8) & 255) + c(n & 255);
+}
+
+function circle(ctx, r, fill) {
+  ctx.beginPath();
+  ctx.arc(C, C, r, 0, Math.PI * 2);
+  ctx.fillStyle = fill;
+  ctx.fill();
+}
+
+function drawRoundel(ctx, phi) {
+  const off = st.angle * Math.PI / 180;
+  circle(ctx, 239.5, chromeFill(ctx, st.rim));
+  circle(ctx, 232, st.ring);
+  const t = layout(st.labelText, st.spacing);
+  const mid = LABEL_BASE + 4 * LABEL_SCALE;
+  ctx.strokeStyle = st.label;
+  ctx.lineWidth = LABEL_STROKE * LABEL_SCALE;
+  ctx.lineCap = ctx.lineJoin = 'round';
+  strokePaths(ctx, t.strokes, (u, v) => {
+    const a = (u - t.width / 2) * LABEL_SCALE / mid + off;
+    const r = LABEL_BASE + v * LABEL_SCALE;
+    return [C + r * Math.sin(a), C - r * Math.cos(a)];
+  });
+  circle(ctx, 156, chromeFill(ctx, st.rim));
+  // Quarter A is top-left / bottom-right, turned clockwise by phi.
+  for (let q = 0; q < 4; q++) {
+    ctx.beginPath();
+    ctx.moveTo(C, C);
+    const start = Math.PI + q * Math.PI / 2 + phi;
+    ctx.arc(C, C, 150, start, start + Math.PI / 2);
+    ctx.closePath();
+    ctx.fillStyle = q % 2 === 0 ? st.quadA : st.quadB;
+    ctx.fill();
+  }
+}
+
+function drawStripes(ctx, offset, repeat) {
+  const w = 58;
+  ctx.fillStyle = st.stripeBg;
+  ctx.fillRect(0, 0, 480, 480);
+  ctx.save();
+  ctx.translate(C, C);
+  ctx.rotate((st.angle + 30) * Math.PI / 180);
+  const cols = [st.stripe1, st.stripe2, st.stripe3];
+  const period = 6 * w;
+  const first = repeat ? Math.floor((-400 - offset) / period) : 0;
+  const last = repeat ? Math.ceil((400 - offset) / period) : 0;
+  for (let p = first; p <= last; p++) {
+    for (let i = 0; i < 3; i++) {
+      const q = repeat ? offset + p * period + i * w : (i - 1.5) * w;
+      ctx.fillStyle = cols[i];
+      ctx.fillRect(q, -400, w + 0.5, 800);
+    }
+  }
+  ctx.restore();
+}
+
+function drawTextMode(ctx, text, fg, bg) {
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, 480, 480);
+  const lines = text.split('|').slice(0, 4).map((l) => layout(l, 2));
+  const maxW = Math.max(1, ...lines.map((l) => l.width));
+  const totalH = lines.length * 8 + (lines.length - 1) * 5;
+  const sc = Math.min(340 / (maxW + 1.35), 300 / totalH, 20);
+  ctx.strokeStyle = fg;
+  ctx.lineWidth = 1.35 * sc;
+  ctx.lineCap = ctx.lineJoin = 'round';
+  lines.forEach((l, i) => {
+    const ox = C - l.width * sc / 2;
+    const base = C + totalH * sc / 2 - (lines.length - 1 - i) * 13 * sc;
+    strokePaths(ctx, l.strokes, (u, v) => [ox + u * sc, base - v * sc]);
+  });
+}
+
+let phase = 0, last = 0;
+function frame(ts) {
+  const dt = last ? Math.min(0.2, (ts - last) / 1000) : 0;
+  last = ts;
+  if (st) {
+    const ctx = $('preview').getContext('2d');
+    ctx.clearRect(0, 0, 480, 480);
+    ctx.globalAlpha = 1;
+    const off = st.angle * Math.PI / 180;
+    if (st.mode === 0) drawRoundel(ctx, off);
+    else if (st.mode === 1) { phase += dt * st.speed / 100 * 2 * Math.PI; drawRoundel(ctx, off + phase); }
+    else if (st.mode === 2) { if (st.speed) phase += dt * st.speed * 1.5; drawStripes(ctx, st.speed ? phase : 0, !!st.speed); }
+    else if (st.mode === 3) {
+      let lvl = 1;
+      if (st.speed) { phase += dt * Math.abs(st.speed) / 100 * 1.5 * 2 * Math.PI; lvl = 0.25 + 0.75 * (0.5 + 0.5 * Math.sin(phase)); }
+      ctx.fillStyle = shade(st.solid, lvl);
+      ctx.fillRect(0, 0, 480, 480);
+    } else if (st.mode === 4) {
+      const t = st.slots[st.imageSlot] && getThumb(st.imageSlot);
+      if (t) {
+        if (!thumbCache[t]) { thumbCache[t] = new Image(); thumbCache[t].src = t; }
+        ctx.drawImage(thumbCache[t], 0, 0, 480, 480);
+      } else drawTextMode(ctx, st.slots[st.imageSlot] ? 'PICTURE ' + (st.imageSlot + 1) : 'NO|IMAGE', '#606060', '#000000');
+    } else if (st.mode === 5) drawTextMode(ctx, st.text, st.textFg, st.textBg);
+    // Dim the preview like the real thing.
+    ctx.fillStyle = `rgba(0,0,0,${1 - st.brightness / 100})`;
+    ctx.fillRect(0, 0, 480, 480);
+  }
+  requestAnimationFrame(frame);
+}
+
+buildControls();
+setupPictures();
+setupSystem();
+loadState();
+requestAnimationFrame(frame);
+setInterval(() => { if (online && !inFlight) api('/api/state').then(() => setOnline(true)).catch(() => setOnline(false)); }, 10000);
+</script>
+</body>
+</html>
