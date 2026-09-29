@@ -4,6 +4,7 @@
 // default). Join it from your phone and a control page opens automatically
 // (or browse to http://192.168.4.1 or http://emblem.local). Optionally it can
 // also join an existing network such as your phone's hotspot.
+#ifndef EMBLEM_DIAG
 #include <Arduino.h>
 #include <DNSServer.h>
 #include <ESPmDNS.h>
@@ -39,6 +40,19 @@ static uint32_t restartAt = 0;
 
 // ---------------------------------------------------------------------------
 // Display output
+
+// Logs to native USB and to UART0, so output shows up whichever port is used.
+static void logf(const char *fmt, ...) {
+    char buf[256];
+    va_list args;
+    va_start(args, fmt);
+    vsnprintf(buf, sizeof(buf), fmt, args);
+    va_end(args);
+    Serial.print(buf);
+#if ARDUINO_USB_CDC_ON_BOOT
+    Serial0.print(buf);
+#endif
+}
 
 static void *psramAlloc(size_t n) {
     return heap_caps_malloc(n, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
@@ -363,7 +377,7 @@ static void setupWifi() {
     if (settings.staSsid[0]) WiFi.begin(settings.staSsid, settings.staPass);
     dns.start(53, "*", WiFi.softAPIP());
     if (MDNS.begin("emblem")) MDNS.addService("http", "tcp", 80);
-    Serial.printf("Wi-Fi \"%s\" up, open http://%s or http://emblem.local\n", settings.apSsid,
+    logf("Wi-Fi \"%s\" up, open http://%s or http://emblem.local\n", settings.apSsid,
                   WiFi.softAPIP().toString().c_str());
 }
 
@@ -372,9 +386,9 @@ static void setupWifi() {
 // Brings up the panel. Any failure is logged and leaves displayOk false, so
 // Wi-Fi and the phone page keep working and the panel type can be changed.
 static void setupDisplay() {
-    Serial.printf("PSRAM: %s, %u bytes free\n", psramFound() ? "found" : "NOT FOUND", unsigned(ESP.getFreePsram()));
+    logf("PSRAM: %s, %u bytes free\n", psramFound() ? "found" : "NOT FOUND", unsigned(ESP.getFreePsram()));
     if (!psramFound()) {
-        Serial.println("Display needs PSRAM; check board_build.arduino.memory_type in platformio.ini");
+        logf("Display needs PSRAM; check board_build.arduino.memory_type in platformio.ini\n");
         return;
     }
 
@@ -384,21 +398,21 @@ static void setupDisplay() {
     ledcWrite(0, 0);  // dark until the first frame
 #endif
 
-    if (!displayPowerOn()) Serial.println("I/O expander (0x20) did not answer on I2C");
+    if (!displayPowerOn()) logf("I/O expander (0x20) did not answer on I2C\n");
     const uint8_t panel = settings.panel < PANEL_TYPE_COUNT ? settings.panel : 0;
-    Serial.printf("Panel type %u: %s\n", panel, PANEL_TYPES[panel].name);
+    logf("Panel type %u: %s\n", panel, PANEL_TYPES[panel].name);
     gfx = createDisplay(panel);
     bool ok = gfx->begin();
     displayDeselect();
     if (!ok) {
-        Serial.println("Display init failed");
+        logf("Display init failed\n");
         return;
     }
     gfx->fillScreen(RGB565_BLACK);
 
     presentBuf = static_cast<uint16_t *>(psramAlloc(IMAGE_BYTES));
     if (!presentBuf || !renderer.begin(psramAlloc)) {
-        Serial.println("Out of PSRAM");
+        logf("Out of PSRAM\n");
         return;
     }
     displayOk = true;
@@ -406,15 +420,18 @@ static void setupDisplay() {
     if (settings.mode == MODE_IMAGE) loadImage();
     renderer.apply(settings);
     if (settings.mode == MODE_ROUNDEL || settings.mode == MODE_SPIN) renderer.startIntro(millis());
-    Serial.println("Display ready");
+    logf("Display ready\n");
 }
 
 void setup() {
     Serial.begin(115200);
+#if ARDUINO_USB_CDC_ON_BOOT
+    Serial0.begin(115200);
+#endif
     delay(1500);  // give the USB serial port time to appear so the log isn't lost
-    Serial.println("\n=== Emblem starting ===");
+    logf("\n=== Emblem starting ===\n");
 
-    if (!LittleFS.begin(true)) Serial.println("LittleFS mount failed");
+    if (!LittleFS.begin(true)) logf("LittleFS mount failed\n");
     loadSettings();
 
     // Wi-Fi first: even if the display fails, the phone page stays reachable.
@@ -443,3 +460,4 @@ void loop() {
     if (restartAt && int32_t(now - restartAt) >= 0) ESP.restart();
     delay(1);
 }
+#endif  // EMBLEM_DIAG
