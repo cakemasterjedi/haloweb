@@ -83,9 +83,11 @@ g++ -O2 -std=c++17 -Isrc tools/host_preview.cpp src/renderer.cpp -o preview && .
 
 ## Hardware notes
 
-- **PSRAM:** this board has *quad* (QSPI) PSRAM, so `platformio.ini` uses
-  `memory_type = qio_qspi`. With `qio_opi` it doesn't boot at all: no screen,
-  no Wi-Fi, no serial output.
+- **PSRAM:** the board has octal PSRAM (`memory_type = qio_opi`, as in
+  Waveshare's demo). If the serial log ever shows `PSRAM ID read error`, that
+  setting is wrong and the display can't start.
+- **Serial log:** the USB-C port goes through a CH343 USB-serial chip, so the
+  firmware logs to UART0 (`ARDUINO_USB_CDC_ON_BOOT=0`).
 - **Hardware check:** `pio run -e diag -t upload` flashes a test that skips
   the display, starts an open `EMBLEM-TEST` network and reports chip, PSRAM
   and I2C details over serial and at http://192.168.4.1.
