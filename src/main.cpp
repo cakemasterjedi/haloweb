@@ -24,7 +24,6 @@
 static const size_t IMAGE_BYTES = size_t(Renderer::W) * Renderer::H * 2;
 static const uint32_t FRAME_MS = 20;
 static const uint32_t SAVE_DELAY_MS = 2000;
-static const int BL_CHANNEL = 1;
 static const uint64_t ANIM_CAP_FLASH = 8ull << 20;  // biggest animation kept in internal flash
 static const uint64_t ANIM_CAP_SD = 32ull << 20;    // ... and on a micro SD card
 
@@ -67,7 +66,7 @@ static void applyBrightness() {
     if (!displayOk) return;
     uint8_t pct = constrain(settings.brightness, 5, 100);
 #if LCD_BL_PIN >= 0
-    ledcWrite(BL_CHANNEL, map(pct, 0, 100, 0, 1023));
+    ledcWrite(LCD_BL_PIN, map(pct, 0, 100, 0, 1023));
 #endif
     for (int i = 0; i < 32; i++) lut5[i] = i * pct / 100;
     for (int i = 0; i < 64; i++) lut6[i] = i * pct / 100;
@@ -83,7 +82,7 @@ static void panelDraw(int x, int y, int w, int h, const uint16_t *pixels) {
 // in drawing the emblem.
 static void showTestColours() {
     if (!panel || !presentBuf) return;
-    const uint16_t colours[] = {RGB565_RED, RGB565_GREEN, RGB565_BLUE, RGB565_WHITE};
+    const uint16_t colours[] = {0xF800, 0x07E0, 0x001F, 0xFFFF};
     const char *names[] = {"red", "green", "blue", "white"};
     for (int i = 0; i < 4; i++) {
         logf("Test colour: %s\n", names[i]);
@@ -639,15 +638,14 @@ static void setupDisplay() {
     }
 
 #if LCD_BL_PIN >= 0
-    ledcSetup(BL_CHANNEL, 20000, 10);  // same PWM as Waveshare's demo
-    ledcAttachPin(LCD_BL_PIN, BL_CHANNEL);
-    ledcWrite(BL_CHANNEL, 0);          // dark until the first frame
+    ledcAttach(LCD_BL_PIN, 20000, 10);  // same PWM as Waveshare's demo
+    ledcWrite(LCD_BL_PIN, 0);           // dark until the first frame
 #endif
 
     if (!displayPowerOn()) logf("I/O expander (0x20) did not answer on I2C\n");
     const uint8_t panelIndex = settings.panel < PANEL_TYPE_COUNT ? settings.panel : 0;
     logf("Panel type %u: %s\n", panelIndex, PANEL_TYPES[panelIndex].name);
-    int initResult = panelSendInit(panelType(panelIndex).init, panelType(panelIndex).initLen);
+    int initResult = panelSendInit();
     displayDeselect();
     if (initResult != 0) {
         logf("Panel set-up over SPI failed (code %d)\n", initResult);
