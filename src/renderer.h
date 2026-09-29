@@ -1,6 +1,6 @@
 #pragma once
 // Draws the emblem into an RGB565 frame buffer. Plain C++ with no Arduino
-// dependencies so it can also be built and checked on a PC (see test/).
+// dependencies so it can also be built and checked on a PC (see tools/).
 #include <stddef.h>
 #include <stdint.h>
 #include "settings.h"
@@ -22,8 +22,10 @@ public:
     // Call whenever settings change; the next render() redraws everything.
     void apply(const Settings &s);
 
-    // Spin-up animation for the roundel modes.
+    // Start-up animation: the chrome ring sweeps in, the quarters spin into
+    // place, a glint crosses the badge, then the selected mode takes over.
     void startIntro(uint32_t ms);
+    bool introRunning() const { return introStart_ != 0; }
 
     // Picture for MODE_IMAGE: fill imageBuffer() (W*H RGB565) then call imageChanged().
     uint16_t *imageBuffer() { return image_; }
@@ -34,12 +36,17 @@ public:
     Rect render(uint32_t ms);
     const uint16_t *frame() const { return frame_; }
 
+    // Draws a full-screen message (e.g. before shutting down) straight away.
+    // The next render() goes back to the selected mode.
+    Rect showMessage(const char *text, uint32_t fg);
+
 private:
     struct Seg {
         float x0, y0, x1, y1;
     };
     static const int MAX_SEGS = 512;
     static const int MAX_GLYPHS = 40;
+    static const int DISC = 300;  // side of the disc shading images
 
     struct TextLayout {
         Seg segs[MAX_SEGS];
@@ -52,30 +59,35 @@ private:
         float width;
     };
 
+    enum Layer : uint8_t { LAYER_NONE, LAYER_ROUNDEL, LAYER_CARBON };
+
     static void layoutText(TextLayout &t, const char *text, int len, float tracking);
     static float distToLayout(const TextLayout &t, float u, float v);
 
+    void buildTables();
     void buildRoundelLayer();
+    void buildCarbonLayer();
     void drawDisc(float phi);
     void drawStripes(float offset, bool repeat);
-    void drawSolid(float level);
     void drawText();
     void drawImage();
-
-    bool introActive(uint32_t ms) const { return introStart_ && ms - introStart_ < INTRO_MS; }
-    float introAngle(uint32_t ms) const;
-
-    static const uint32_t INTRO_MS = 2200;
+    void drawIntro(float t, bool intoRoundel);
 
     Settings s_;
     uint16_t *frame_ = nullptr;
-    uint16_t *layer_ = nullptr;
+    uint16_t *layer_ = nullptr;   // static background: roundel or carbon fibre
     uint16_t *image_ = nullptr;
-    uint8_t *mask_ = nullptr;
+    uint16_t *discA_ = nullptr;   // shaded disc in quarter colour A / B
+    uint16_t *discB_ = nullptr;
+    uint16_t *angle_ = nullptr;   // per-pixel angle, clockwise from the top (0..65535)
+    uint8_t *vignette_ = nullptr; // per-pixel edge darkening (255 = none)
+    uint8_t *mask_ = nullptr;     // text coverage
+    uint8_t *shadow_ = nullptr;   // text shadow coverage
+    Layer layer = LAYER_NONE;
     bool imageValid_ = false;
     bool dirty_ = true;
     uint32_t lastMs_ = 0;
     uint32_t introStart_ = 0;
-    float phase_ = 0;  // radians (spin) or pixels (stripes) or radians (pulse)
+    float phase_ = 0;  // radians (spin) or pixels (stripes)
     TextLayout text_;
 };

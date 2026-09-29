@@ -23,13 +23,18 @@ state = {
     "mode": 0, "brightness": 80, "speed": 30, "imageSlot": 0, "angle": 0,
     "quadA": "#1C69D4", "quadB": "#FFFFFF", "ring": "#000000", "rim": "#B8BCC2", "label": "#FFFFFF",
     "labelText": "BMW", "spacing": 12,
-    "stripe1": "#3FA9F5", "stripe2": "#1B3D8F", "stripe3": "#E22718", "stripeBg": "#101214",
-    "solid": "#1C69D4", "textBg": "#000000", "textFg": "#FFFFFF", "text": "M|POWER",
+    "stripe1": "#3FA9F5", "stripe2": "#1B3D8F", "stripe3": "#E22718", "stripeBg": "#16181B",
+    "textBg": "#000000", "textFg": "#FFFFFF", "text": "M|POWER",
     "apSsid": "BMW-Emblem", "staSsid": "", "staIp": "", "slots": [0] * 10,
-    "storage": "flash", "fsUsedKB": 0, "fsTotalKB": 12 * 1024, "animMax": ANIM_MAX, "panel": 0, "panels": ["2.8in round (TL028WVC01)", "2.8in round (ST7701 type 6)"], "display": True,
+    "storage": "flash", "fsUsedKB": 0, "fsTotalKB": 12 * 1024, "animMax": ANIM_MAX,
+    "panel": 0, "panels": ["18 MHz (recommended)", "30 MHz (Waveshare demo)", "12 MHz (lightest)"], "display": True,
+    "startupAnim": 1, "powerMode": 0, "autoOffMin": 0, "showHours": 0, "showBrightness": 60,
+    "lowVoltOn": 0, "cutoff": 12.0, "voltSource": 0, "volts": None, "offIn": -1, "lowFor": 0,
 }
-LIMITS = {"mode": (0, 5), "brightness": (5, 100), "speed": (-100, 100), "imageSlot": (0, 9),
-          "angle": (-180, 180), "spacing": (0, 30)}
+LIMITS = {"mode": (0, 4), "brightness": (5, 100), "speed": (-100, 100), "imageSlot": (0, 9),
+          "angle": (-180, 180), "spacing": (0, 30), "startupAnim": (0, 1), "powerMode": (0, 1),
+          "autoOffMin": (0, 720), "showHours": (0, 48), "showBrightness": (5, 100), "lowVoltOn": (0, 1),
+          "voltSource": (0, 2)}
 TEXT = {"labelText": 16, "text": 32}
 
 
@@ -64,7 +69,7 @@ class Handler(BaseHTTPRequestHandler):
                 f.write(data)
         state["slots"][slot] = kind
         state["fsUsedKB"] += len(data) // 1024
-        state["mode"], state["imageSlot"] = 4, slot
+        state["mode"], state["imageSlot"] = 3, slot
         self.state()
 
     def do_GET(self):
@@ -86,10 +91,18 @@ class Handler(BaseHTTPRequestHandler):
                 if k in LIMITS:
                     lo, hi = LIMITS[k]
                     state[k] = max(lo, min(hi, int(v)))
+                elif k == "cutoff":
+                    state["cutoff"] = float(v)
                 elif k in TEXT:
                     state[k] = v[:TEXT[k]]
                 elif k in state and isinstance(state[k], str) and len(v) == 7 and v.startswith("#"):
                     state[k] = v.upper()
+            # Fake readings so the power tab can be tried out.
+            state["volts"] = {0: None, 1: 3.92, 2: 12.64}[state["voltSource"]]
+            if state["powerMode"] == 1:
+                state["offIn"] = state["showHours"] * 3600 if state["showHours"] else -1
+            else:
+                state["offIn"] = state["autoOffMin"] * 60 if state["autoOffMin"] else -1
             self.state()
         elif url.path == "/api/image":
             data = self.multipart_file()
@@ -119,7 +132,7 @@ class Handler(BaseHTTPRequestHandler):
         elif url.path == "/api/panel":
             state["panel"] = int(self.form().get("panel", 0))
             self.reply(200, "Restarting...", "text/plain")
-        elif url.path in ("/api/reboot", "/update", "/api/test"):
+        elif url.path in ("/api/reboot", "/update", "/api/test", "/api/power/off"):
             self.rfile.read(int(self.headers.get("Content-Length", 0)))
             self.reply(200, "Restarting...", "text/plain")
         else:

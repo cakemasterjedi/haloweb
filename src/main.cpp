@@ -16,6 +16,8 @@
 #include <WebServer.h>
 #include <WiFi.h>
 #include <esp_cache.h>
+#include <esp_sleep.h>
+#include <driver/gpio.h>
 
 #include "display_config.h"
 #include "renderer.h"
@@ -41,6 +43,18 @@ static bool forceFull = true;
 static bool displayOk = false;
 static uint32_t saveAt = 0;
 static uint32_t restartAt = 0;
+static uint32_t shutdownAt = 0;
+
+// Power management state.
+enum SleepReason : uint8_t { SLEEP_NONE = 0, SLEEP_OFF, SLEEP_LOWV };
+RTC_DATA_ATTR static uint8_t sleepReason = SLEEP_NONE;  // survives deep sleep
+static float volts = NAN;          // smoothed battery voltage, NAN if unknown
+static uint32_t lastActivity = 0;  // last change made from the phone
+static uint32_t showStart = 0;     // when car show mode started
+static uint32_t lowSince = 0;      // when the voltage first dropped below the cutoff
+static const uint32_t LOW_VOLT_GRACE_MS = 30000;  // ignore dips (e.g. engine cranking)
+static const uint64_t LOW_VOLT_RECHECK_US = 10ull * 60 * 1000000;  // asleep: re-check every 10 min
+static const float RESUME_MARGIN_V = 0.3f;
 
 // ---------------------------------------------------------------------------
 // Display output
@@ -62,9 +76,14 @@ static void *psramAlloc(size_t n) {
     return heap_caps_malloc(n, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
 }
 
+// Car show mode has its own brightness.
+static uint8_t effectiveBrightness() {
+    return settings.powerMode == POWER_CAR_SHOW ? settings.showBrightness : settings.brightness;
+}
+
 static void applyBrightness() {
     if (!displayOk) return;
-    uint8_t pct = constrain(settings.brightness, 5, 100);
+    uint8_t pct = constrain(effectiveBrightness(), 5, 100);
 #if LCD_BL_PIN >= 0
     ledcWrite(LCD_BL_PIN, map(pct, 0, 100, 0, 1023));
 #endif
@@ -159,7 +178,7 @@ static void present(Rect r) {
     lastDirty = r;
     const uint16_t *src = renderer.frame();
     uint16_t *dst = fbs[backFb];
-    const bool scale = softDim && settings.brightness < 100;
+    const bool scale = softDim && effectiveBrightness() < 100;
     for (int y = area.y; y < area.y + area.h; y++) {
         const size_t off = size_t(y) * Renderer::W + area.x;
         if (!scale) {
@@ -355,6 +374,120 @@ static void saveSettings() {
 }
 
 // ---------------------------------------------------------------------------
+// Power: battery voltage, auto-off, car show mode, deep sleep
+
+// Uncalibrated reading from the selected source, NAN if there's none.
+static float readRawVolts() {
+    switch (settings.voltSource) {
+        case VOLT_BOARD: {
+            uint32_t mv = 0;
+            for (int i = 0; i < 16; i++) mv += analogReadMilliVolts(BAT_ADC_PIN);
+            return mv / 16 / 1000.0f * BAT_DIVIDER;
+        }
+        case VOLT_INA219: {
+            Wire.beginTransmission(INA219_ADDR);
+            Wire.write(0x02);  // bus voltage register
+            if (Wire.endTransmission(false) != 0 || Wire.requestFrom(INA219_ADDR, 2) != 2) return NAN;
+            uint16_t raw = (Wire.read() << 8) | Wire.read();
+            return (raw >> 3) * 0.004f;
+        }
+        default:
+            return NAN;
+    }
+}
+
+// Calibrated voltage; readings under 1 V mean nothing is connected.
+static float readVolts() {
+    float v = readRawVolts() * settings.voltCal / 1000.0f;
+    return (isnan(v) || v < 1.0f) ? NAN : v;
+}
+
+// Milliseconds until the emblem turns itself off (never below 0), or -1 if
+// no timer is set.
+static int64_t offInMs(uint32_t now) {
+    int64_t left;
+    if (settings.powerMode == POWER_CAR_SHOW) {
+        if (!settings.showHours) return -1;
+        left = int64_t(settings.showHours) * 3600000 - int64_t(now - showStart);
+    } else {
+        if (!settings.autoOffMin) return -1;
+        left = int64_t(settings.autoOffMin) * 60000 - int64_t(now - lastActivity);
+    }
+    return left < 0 ? 0 : left;
+}
+
+// Deep sleep: backlight held off, panel held in reset, Wi-Fi off. Wakes on
+// the BOOT button, a power cycle, or (after a low-voltage shutdown) every
+// 10 minutes to see whether the battery has recovered.
+static void enterSleep(uint8_t reason) {
+    logf("Sleeping (%s)\n", reason == SLEEP_LOWV ? "low voltage" : "turned off");
+    Serial.flush();
+    sleepReason = reason;
+#if LCD_BL_PIN >= 0
+    ledcDetach(LCD_BL_PIN);
+    pinMode(LCD_BL_PIN, OUTPUT);
+    digitalWrite(LCD_BL_PIN, LOW);
+    gpio_hold_en(gpio_num_t(LCD_BL_PIN));
+    gpio_deep_sleep_hold_en();
+#endif
+    expanderSet(EXIO_LCD_RST, false);
+    WiFi.mode(WIFI_OFF);
+    esp_sleep_enable_ext0_wakeup(GPIO_NUM_0, 0);  // BOOT button
+    if (reason == SLEEP_LOWV && settings.voltSource != VOLT_NONE) esp_sleep_enable_timer_wakeup(LOW_VOLT_RECHECK_US);
+    esp_deep_sleep_start();
+}
+
+// Says goodbye on the screen, fades out and goes to sleep.
+static void shutdownNow(uint8_t reason) {
+    if (saveAt) saveSettings();
+    if (displayOk) {
+        present(renderer.showMessage(reason == SLEEP_LOWV ? "LOW|VOLTAGE" : "GOOD|BYE",
+                                     reason == SLEEP_LOWV ? 0xE22718 : 0xC8CCD2));
+        delay(1600);
+#if LCD_BL_PIN >= 0
+        for (int i = 20; i >= 0; i--) {
+            ledcWrite(LCD_BL_PIN, map(effectiveBrightness(), 0, 100, 0, 1023) * i / 20);
+            delay(30);
+        }
+#endif
+    }
+    enterSleep(reason);
+}
+
+// Called once a second.
+static void powerTick(uint32_t now) {
+    float v = readVolts();
+    volts = isnan(v) ? NAN : (isnan(volts) ? v : volts * 0.7f + v * 0.3f);
+
+    const float cutoff = settings.cutoffCV / 100.0f;
+    if (settings.lowVoltOn && !isnan(volts) && volts < cutoff) {
+        if (!lowSince) lowSince = now ? now : 1;
+        if (now - lowSince >= LOW_VOLT_GRACE_MS) shutdownNow(SLEEP_LOWV);
+    } else {
+        lowSince = 0;
+    }
+    const bool timed = settings.powerMode == POWER_CAR_SHOW ? settings.showHours : settings.autoOffMin;
+    if (timed && offInMs(now) <= 0) shutdownNow(SLEEP_OFF);
+}
+
+// After waking from a low-voltage shutdown: go straight back to sleep unless
+// the battery has recovered (e.g. the engine is running / it was charged).
+static void checkLowVoltageWake() {
+    if (esp_sleep_get_wakeup_cause() != ESP_SLEEP_WAKEUP_TIMER || sleepReason != SLEEP_LOWV) return;
+    Wire.begin(I2C_SDA, I2C_SCL);
+    delay(20);
+    float v = readVolts();
+    float resume = settings.cutoffCV / 100.0f + RESUME_MARGIN_V;
+    logf("Low-voltage check: %.2f V (resume at %.2f V)\n", v, resume);
+    if (isnan(v) || v < resume) {
+        sleepReason = SLEEP_LOWV;
+        esp_sleep_enable_ext0_wakeup(GPIO_NUM_0, 0);
+        esp_sleep_enable_timer_wakeup(LOW_VOLT_RECHECK_US);
+        esp_deep_sleep_start();
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Web API
 
 static String colorHex(uint32_t c) {
@@ -414,7 +547,6 @@ static void sendState() {
     j += ",\"stripe2\":\"" + colorHex(settings.stripe2) + "\"";
     j += ",\"stripe3\":\"" + colorHex(settings.stripe3) + "\"";
     j += ",\"stripeBg\":\"" + colorHex(settings.stripeBg) + "\"";
-    j += ",\"solid\":\"" + colorHex(settings.solid) + "\"";
     j += ",\"textBg\":\"" + colorHex(settings.textBg) + "\"";
     j += ",\"textFg\":\"" + colorHex(settings.textFg) + "\"";
     j += ",\"text\":" + jsonString(settings.text);
@@ -439,6 +571,20 @@ static void sendState() {
     j += ",\"fsUsedKB\":" + String(unsigned(mediaUsed() / 1024));
     j += ",\"fsTotalKB\":" + String(unsigned(mediaTotal() / 1024));
     j += ",\"animMax\":" + String(unsigned(animMaxBytes()));
+    // Power
+    const uint32_t now = millis();
+    const int64_t offIn = offInMs(now);
+    j += ",\"startupAnim\":" + String(settings.startupAnim);
+    j += ",\"powerMode\":" + String(settings.powerMode);
+    j += ",\"autoOffMin\":" + String(settings.autoOffMin);
+    j += ",\"showHours\":" + String(settings.showHours);
+    j += ",\"showBrightness\":" + String(settings.showBrightness);
+    j += ",\"lowVoltOn\":" + String(settings.lowVoltOn);
+    j += ",\"cutoff\":" + String(settings.cutoffCV / 100.0f, 2);
+    j += ",\"voltSource\":" + String(settings.voltSource);
+    j += ",\"volts\":" + (isnan(volts) ? String("null") : String(volts, 2));
+    j += ",\"offIn\":" + String(offIn < 0 ? -1 : long(offIn / 1000));
+    j += ",\"lowFor\":" + String(lowSince ? long((now - lowSince) / 1000) : 0L);
     j += "}";
     server.sendHeader("Cache-Control", "no-store");
     server.send(200, "application/json", j);
@@ -483,18 +629,43 @@ static void handleSet() {
     argColor("stripe2", settings.stripe2);
     argColor("stripe3", settings.stripe3);
     argColor("stripeBg", settings.stripeBg);
-    argColor("solid", settings.solid);
     argColor("textBg", settings.textBg);
     argColor("textFg", settings.textFg);
     argText("labelText", settings.labelText, sizeof(settings.labelText));
     argText("text", settings.text, sizeof(settings.text));
 
-    if (settings.mode == MODE_IMAGE && (oldMode != MODE_IMAGE || oldSlot != settings.imageSlot)) loadImage();
-    if (settings.brightness != oldBrightness) applyBrightness();
-    if (displayOk) renderer.apply(settings);
-    if (displayOk && oldMode != settings.mode && (settings.mode == MODE_ROUNDEL || settings.mode == MODE_SPIN)) {
-        renderer.startIntro(millis());
+    // Power
+    const uint8_t oldPower = settings.powerMode;
+    const uint8_t oldShowBrightness = settings.showBrightness;
+    if (argInt("startupAnim", 0, 1, v)) settings.startupAnim = v;
+    if (argInt("powerMode", 0, 1, v)) settings.powerMode = v;
+    if (argInt("autoOffMin", 0, 720, v)) settings.autoOffMin = v;
+    if (argInt("showHours", 0, 48, v)) settings.showHours = v;
+    if (argInt("showBrightness", 5, 100, v)) settings.showBrightness = v;
+    if (argInt("lowVoltOn", 0, 1, v)) settings.lowVoltOn = v;
+    if (argInt("voltSource", 0, 2, v)) {
+        if (settings.voltSource != v) volts = NAN;
+        settings.voltSource = v;
     }
+    if (server.hasArg("cutoff")) settings.cutoffCV = constrain(lroundf(server.arg("cutoff").toFloat() * 100), 250, 1600);
+    if (server.hasArg("calibrateTo")) {
+        // Match a multimeter: scale so the current reading equals what was entered.
+        float raw = readRawVolts(), actual = server.arg("calibrateTo").toFloat();
+        if (!isnan(raw) && raw > 0.5f && actual > 0.5f) {
+            settings.voltCal = constrain(lroundf(actual / raw * 1000), 500, 2000);
+            volts = NAN;
+        }
+    }
+    if (server.hasArg("calibrateReset")) settings.voltCal = 1000;
+    if (settings.powerMode != oldPower && settings.powerMode == POWER_CAR_SHOW) showStart = millis();
+    lastActivity = millis();
+
+    if (settings.mode == MODE_IMAGE && (oldMode != MODE_IMAGE || oldSlot != settings.imageSlot)) loadImage();
+    if (settings.brightness != oldBrightness || settings.showBrightness != oldShowBrightness ||
+        settings.powerMode != oldPower) {
+        applyBrightness();
+    }
+    if (displayOk) renderer.apply(settings);
     saveAt = millis() + SAVE_DELAY_MS;
     sendState();
 }
@@ -541,6 +712,7 @@ static bool storeUpload(long slot, const String &path) {
     }
     settings.mode = MODE_IMAGE;
     settings.imageSlot = slot;
+    lastActivity = millis();
     loadImage();
     if (displayOk) renderer.apply(settings);
     saveAt = millis() + SAVE_DELAY_MS;
@@ -666,6 +838,10 @@ static void setupWeb() {
         server.send(200, "text/plain", "Showing red, green, blue, white");
         showTestColours();
     });
+    server.on("/api/power/off", HTTP_POST, [] {
+        server.send(200, "text/plain", "Turning off. Press the BOOT button or power-cycle to wake it.");
+        shutdownAt = millis() + 600;
+    });
     server.on("/api/reboot", HTTP_POST, [] {
         server.send(200, "text/plain", "Restarting...");
         restartAt = millis() + 500;
@@ -728,9 +904,8 @@ static void setupDisplay() {
     displayOk = true;
     applyBrightness();
     renderer.apply(settings);
-    if (settings.mode == MODE_ROUNDEL || settings.mode == MODE_SPIN) renderer.startIntro(millis());
+    if (settings.startupAnim) renderer.startIntro(millis());
     logf("Display ready\n");
-    showTestColours();
 }
 
 // The card slot shares GPIO1/2 with the display's set-up bus, so this must
@@ -753,11 +928,16 @@ void setup() {
 #if ARDUINO_USB_CDC_ON_BOOT
     Serial0.begin(115200);
 #endif
-    delay(1500);  // give the USB serial port time to appear so the log isn't lost
-    logf("\n=== Emblem starting ===\n");
-
-    if (!LittleFS.begin(true)) logf("LittleFS mount failed\n");
+#if LCD_BL_PIN >= 0
+    gpio_hold_dis(gpio_num_t(LCD_BL_PIN));  // held low during deep sleep
+    gpio_deep_sleep_hold_dis();
+#endif
     loadSettings();
+    checkLowVoltageWake();  // may go straight back to sleep
+    sleepReason = SLEEP_NONE;
+    delay(300);
+    logf("\n=== Emblem starting ===\n");
+    if (!LittleFS.begin(true)) logf("LittleFS mount failed\n");
 
     // Wi-Fi first: even if the display fails, the phone page stays reachable.
     setupWifi();
@@ -765,6 +945,7 @@ void setup() {
     setupDisplay();
     setupSD();
     if (settings.mode == MODE_IMAGE) loadImage();
+    lastActivity = showStart = millis();
 }
 
 void loop() {
@@ -789,6 +970,12 @@ void loop() {
         if (!r.empty()) present(r);
     }
 
+    static uint32_t lastPowerTick = 0;
+    if (now - lastPowerTick >= 1000) {
+        lastPowerTick = now;
+        powerTick(now);
+    }
+    if (shutdownAt && int32_t(now - shutdownAt) >= 0) shutdownNow(SLEEP_OFF);
     if (saveAt && int32_t(now - saveAt) >= 0) saveSettings();
     if (restartAt && int32_t(now - restartAt) >= 0) ESP.restart();
     delay(1);

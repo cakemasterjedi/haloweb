@@ -13,16 +13,41 @@ there's no app to install.
 
 | Mode | What it looks like | Speed slider |
 |---|---|---|
-| **Roundel** | Classic roundel with chrome rims. Colours and ring lettering are editable. Presets: Classic, Blackout, Motorsport, Carbon, Gold | – |
+| **Roundel** | Roundel with polished chrome rims, glossy ring, embossed letters and a domed centre. Colours and lettering are editable; presets Classic, Blackout, Motorsport, Carbon, Gold | – |
 | **Spin** | Roundel with the quarters rotating | spin speed / direction |
-| **M Stripes** | Tri-colour stripes on a carbon-weave background | 0 = static, otherwise scrolls |
-| **Colour** | Solid colour | 0 = steady, otherwise breathes |
-| **Picture** | Photos, GIFs or videos from your phone (10 slots). Fill / Fit / Fit circle, zoom (pinch), drag, rotate. Animations play at up to ~15 fps | – |
+| **Stripes** | M tri-colour stripes on carbon-fibre twill | 0 = static, otherwise scrolls |
+| **Picture** | Photos, GIFs or videos from your phone (10 slots). Fill / Fit / Fit circle, zoom (pinch), drag, rotate | – |
 | **Text** | Your own text, `\|` starts a new line (e.g. `M\|POWER`) | – |
 
-All modes also have **brightness** and **rotation**. Use rotation to level the
-emblem if the board ends up mounted at an angle. Settings are saved on the
-board and come back after power-up, and the roundel spins up when it boots.
+All modes also have **brightness** and **rotation** (to level the emblem if it's
+mounted at an angle). Settings are saved on the board.
+
+At power-on it plays a **start-up animation**: the chrome ring sweeps in, the
+quarters spin into place, a glint crosses the badge, then your selected mode
+takes over (can be switched off under *Settings*).
+
+## Power (the Power tab)
+
+- **Normal mode:** optionally turns itself off after 5 min – 4 h, counted from
+  power-on or your last change on the phone.
+- **Car show mode:** stays on (for 1–24 h, or until the battery is low) with its
+  own brightness.
+- **Battery protection:** live voltage readout; turns off if the voltage stays
+  below your cutoff for 30 s (so cranking dips don't trigger it). After a
+  low-voltage shutdown it wakes every 10 minutes and comes back on once the
+  battery is above the cutoff + 0.3 V.
+- **Voltage source:**
+  - *Board LiPo* – a battery on the board's battery connector (GPIO4).
+  - *Car battery* – an **INA219** module on the board's I2C connector
+    (SDA 15, SCL 7, 3.3 V, GND; VIN+ to the car battery +, VIN- can be left
+    unconnected, and the module's GND to the car's ground). Every analog pin that
+    works alongside Wi-Fi is taken by the display, so a 12 V battery can't be read
+    directly.
+  - Calibrate against a multimeter reading from the page.
+- **"Off" is deep sleep:** screen, backlight and Wi-Fi off. Wake it with the
+  **BOOT** button or by cutting and restoring power. The board still draws a
+  little current asleep (regulator, USB chip, LEDs), so for zero drain use an
+  ignition-switched supply.
 
 ## Using it
 
@@ -34,7 +59,7 @@ board and come back after power-up, and the roundel spins up when it boots.
    **Stay connected**.
 4. Add the page to your home screen so it works like an app.
 
-Under **Wi-Fi & system** you can:
+Under **Settings** you can:
 
 - rename the network or change its password;
 - have the board also join another network, such as your phone's hotspot, so
@@ -73,7 +98,7 @@ g++ -O2 -std=c++17 -Isrc tools/host_preview.cpp src/renderer.cpp -o preview && .
   can read them frame by frame (Chrome / Android); other browsers use the first
   frame.
 - **Videos** (MP4, WebM, MOV): pick the frame rate (10–25 fps) and length
-  (up to 15 s).
+  (up to 60 s).
 - **Size limits:** animations play straight from storage, so the limit is free
   space. Internal flash (~12 MB) allows up to 8 MB per animation; a micro SD
   card allows up to 32 MB. If a clip is too big, the page lowers the quality,
@@ -96,9 +121,9 @@ g++ -O2 -std=c++17 -Isrc tools/host_preview.cpp src/renderer.cpp -o preview && .
 - **Pins** are in `include/display_config.h`.
 - **Backlight / brightness** uses PWM on GPIO6. If your board doesn't have the
   backlight there, add `-DLCD_BL_PIN=-1` to `build_flags` to dim in software.
-- **Panel type** (*Wi-Fi & system* on the phone page): 18 MHz pixel clock by
-  default (Waveshare's ESP-IDF demo), plus 30 MHz and 12 MHz options.
-  *Show test colours* fills the screen red, green, blue, white.
+- **Panel timing** (*Settings* tab): 18 MHz pixel clock by default (Waveshare's
+  ESP-IDF demo), plus 30 MHz and 12 MHz options. *Test colours* fills the screen
+  red, green, blue, white.
 - **Smooth output:** double-buffered (no tearing), and the RGB stream is
   re-synced after flash writes and once a second so the picture can't stay
   shifted if the S3 falls behind (a known ESP32-S3 RGB "drift").
