@@ -641,9 +641,15 @@ static void setupDisplay() {
     if (!displayPowerOn()) logf("I/O expander (0x20) did not answer on I2C\n");
     const uint8_t panel = settings.panel < PANEL_TYPE_COUNT ? settings.panel : 0;
     logf("Panel type %u: %s\n", panel, PANEL_TYPES[panel].name);
+    int initResult = panelSendInit(panelType(panel).init, panelType(panel).initLen);
+    displayDeselect();
+    if (initResult != 0) {
+        logf("Panel set-up over SPI failed (code %d)\n", initResult);
+        return;
+    }
+    logf("Panel set-up commands sent\n");
     gfx = createDisplay(panel);
     bool ok = gfx->begin();
-    displayDeselect();
     if (!ok) {
         logf("Display init failed\n");
         return;
