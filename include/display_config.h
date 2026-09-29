@@ -119,8 +119,9 @@ static const uint8_t waveshare_2_8c_init_operations[] = {
     OP_CMD, 0x29,
 };
 
-// RGB bus settings. The first entry is exactly Waveshare's demo; the second
-// runs the pixel clock slower in case of flicker or drift.
+// RGB bus settings. 18 MHz is what Waveshare's ESP-IDF demo uses (~65 Hz
+// refresh); 30 MHz is their Arduino demo (~108 Hz, more PSRAM load, more
+// prone to drift); 12 MHz is the lightest on PSRAM.
 struct PanelType {
     const char *name;
     uint32_t pclkHz;
@@ -129,8 +130,9 @@ struct PanelType {
 };
 
 static const PanelType PANEL_TYPES[] = {
-    {"Waveshare 2.8C (30 MHz, as in the demo)", 30000000, LCD_CLK_SRC_PLL240M, 480 * 10},
-    {"Waveshare 2.8C (16 MHz)", 16000000, LCD_CLK_SRC_PLL160M, 480 * 10},
+    {"Waveshare 2.8C (18 MHz, recommended)", 18000000, LCD_CLK_SRC_PLL240M, 480 * 20},
+    {"Waveshare 2.8C (30 MHz, Arduino demo)", 30000000, LCD_CLK_SRC_PLL240M, 480 * 20},
+    {"Waveshare 2.8C (12 MHz)", 12000000, LCD_CLK_SRC_PLL240M, 480 * 20},
 };
 static const uint8_t PANEL_TYPE_COUNT = sizeof(PANEL_TYPES) / sizeof(PANEL_TYPES[0]);
 

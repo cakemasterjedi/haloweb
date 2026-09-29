@@ -78,9 +78,12 @@ static void applyBrightness() {
 // half-drawn (that was the tearing on the spinning roundel).
 static uint16_t *fbs[2];
 static int backFb = 1;
+static Rect lastDirty = {0, 0, Renderer::W, Renderer::H};  // changed area of the previous frame
 static SemaphoreHandle_t vsyncSem;
 
-static bool IRAM_ATTR onVsync(esp_lcd_panel_handle_t, const esp_lcd_rgb_panel_event_data_t *, void *) {
+// With bounce buffers the driver switches to a new frame buffer when it has
+// finished copying a whole frame out, so that's the moment to wait for.
+static bool IRAM_ATTR onFrameDone(esp_lcd_panel_handle_t, const esp_lcd_rgb_panel_event_data_t *, void *) {
     BaseType_t woken = pdFALSE;
     xSemaphoreGiveFromISR(vsyncSem, &woken);
     return woken == pdTRUE;
@@ -93,9 +96,17 @@ static bool setupFrameBuffers() {
     fbs[1] = static_cast<uint16_t *>(b);
     vsyncSem = xSemaphoreCreateBinary();
     esp_lcd_rgb_panel_event_callbacks_t cbs = {};
-    cbs.on_vsync = onVsync;
+    cbs.on_bounce_frame_finish = onFrameDone;
     esp_lcd_rgb_panel_register_event_callbacks(panel, &cbs, nullptr);
     return true;
+}
+
+// The S3 can fall behind feeding the panel when PSRAM or flash is busy (e.g.
+// saving settings), which leaves the picture shifted sideways ("drift").
+// A restart re-syncs it at the next frame boundary, so it's invisible when
+// nothing is wrong; call it after flash writes and now and then.
+static void resyncDisplay() {
+    if (panel) esp_lcd_rgb_panel_restart(panel);
 }
 
 // Shows the back buffer: flush it from the CPU cache, hand it to the driver
@@ -125,23 +136,39 @@ static void showTestColours() {
         delay(600);
     }
     forceFull = true;  // redraw the emblem afterwards
+    lastDirty = {0, 0, Renderer::W, Renderer::H};
 }
 
 static uint32_t framesShown = 0;
 
-// Copies the whole rendered frame (brightness-scaled if dimming in software)
-// into the back buffer and shows it. Only the changed area needs rendering,
-// but each buffer must hold a complete frame.
-static void present(Rect) {
+static Rect unite(Rect a, Rect b) {
+    if (a.empty()) return b;
+    if (b.empty()) return a;
+    int x0 = min(a.x, b.x), y0 = min(a.y, b.y);
+    int x1 = max(a.x + a.w, b.x + b.w), y1 = max(a.y + a.h, b.y + b.h);
+    return {int16_t(x0), int16_t(y0), int16_t(x1 - x0), int16_t(y1 - y0)};
+}
+
+// Copies the changed part of the rendered frame (brightness-scaled if dimming
+// in software) into the back buffer and shows it. The back buffer last held
+// the frame before the previous one, so it also needs the previous frame's
+// changes; copying only that area keeps PSRAM traffic (and drift) down.
+static void present(Rect r) {
     if (framesShown++ == 0) logf("First emblem frame sent to the display\n");
+    const Rect area = unite(r, lastDirty);
+    lastDirty = r;
     const uint16_t *src = renderer.frame();
     uint16_t *dst = fbs[backFb];
-    if (!(softDim && settings.brightness < 100)) {
-        memcpy(dst, src, IMAGE_BYTES);
-    } else {
-        for (int i = 0; i < Renderer::W * Renderer::H; i++) {
-            uint16_t p = src[i];
-            dst[i] = (lut5[p >> 11] << 11) | (lut6[(p >> 5) & 63] << 5) | lut5[p & 31];
+    const bool scale = softDim && settings.brightness < 100;
+    for (int y = area.y; y < area.y + area.h; y++) {
+        const size_t off = size_t(y) * Renderer::W + area.x;
+        if (!scale) {
+            memcpy(dst + off, src + off, area.w * 2);
+            continue;
+        }
+        for (int x = 0; x < area.w; x++) {
+            uint16_t p = src[off + x];
+            dst[off + x] = (lut5[p >> 11] << 11) | (lut6[(p >> 5) & 63] << 5) | lut5[p & 31];
         }
     }
     swapBuffers();
@@ -321,6 +348,7 @@ static void loadSettings() {
 static void saveSettings() {
     prefs.putBytes("s", &settings, sizeof(settings));
     saveAt = 0;
+    resyncDisplay();
 }
 
 // ---------------------------------------------------------------------------
@@ -518,6 +546,7 @@ static bool storeUpload(long slot, const String &path) {
 }
 
 static void handleImageDone() {
+    resyncDisplay();
     long slot = server.arg("slot").toInt();
     if (slot < 0 || slot >= IMAGE_SLOTS || uploadBytes != IMAGE_BYTES) {
         media().remove(uploadPath());
@@ -528,6 +557,7 @@ static void handleImageDone() {
 }
 
 static void handleAnimDone() {
+    resyncDisplay();
     long slot = server.arg("slot").toInt();
     char magic[4] = {0};
     File f = media().open(uploadPath(), "r");
@@ -741,6 +771,11 @@ void loop() {
     static uint32_t lastFrame = 0;
     uint32_t now = millis();
     if (displayOk) stepAnimation(now);
+    static uint32_t lastResync = 0;
+    if (displayOk && now - lastResync >= 1000) {
+        lastResync = now;
+        resyncDisplay();
+    }
     if (displayOk && now - lastFrame >= FRAME_MS) {
         lastFrame = now;
         Rect r = renderer.render(now);
