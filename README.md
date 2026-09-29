@@ -12,7 +12,7 @@ there's no app to install.
 | **Spin** | Roundel with the quarters rotating | spin speed / direction |
 | **M Stripes** | Tri-colour stripes on a carbon-weave background | 0 = static, otherwise scrolls |
 | **Colour** | Solid colour | 0 = steady, otherwise breathes |
-| **Picture** | Any photo from your phone (5 slots, crop/zoom/rotate in the browser) | – |
+| **Picture** | Photos, GIFs or videos from your phone (5 slots). Fill / Fit / Fit circle, zoom (pinch), drag, rotate. Animations play at up to ~15 fps | – |
 | **Text** | Your own text, `\|` starts a new line (e.g. `M\|POWER`) | – |
 
 All modes also have **brightness** and **rotation**. Use rotation to level the
@@ -61,7 +61,25 @@ g++ -O2 -std=c++17 -Isrc tools/host_preview.cpp src/renderer.cpp -o preview && .
                                       # renders every mode to .ppm images
 ```
 
+## Pictures & animations
+
+- **Photos** are stored at full quality (480×480).
+- **GIFs / animated WebP** keep their own timing. The phone needs a browser that
+  can read them frame by frame (Chrome / Android); other browsers use the first
+  frame.
+- **Videos** (MP4, WebM, MOV): pick the frame rate (10–25 fps) and length
+  (up to 15 s).
+- Each animation can be up to 3 MB. The page lowers the quality, then drops
+  frames, until it fits. The storage line under the slots shows free space.
+
 ## Hardware notes
+
+- **PSRAM:** this board has *quad* (QSPI) PSRAM, so `platformio.ini` uses
+  `memory_type = qio_qspi`. With `qio_opi` it doesn't boot at all: no screen,
+  no Wi-Fi, no serial output.
+- **Hardware check:** `pio run -e diag -t upload` flashes a test that skips
+  the display, starts an open `EMBLEM-TEST` network and reports chip, PSRAM
+  and I2C details over serial and at http://192.168.4.1.
 
 - **Pins** are in `include/display_config.h`. They were taken from the
   original test sketch.

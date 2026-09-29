@@ -7,6 +7,7 @@
 #ifndef EMBLEM_DIAG
 #include <Arduino.h>
 #include <DNSServer.h>
+#include <JPEGDEC.h>
 #include <ESPmDNS.h>
 #include <LittleFS.h>
 #include <Preferences.h>
@@ -22,6 +23,7 @@
 static const size_t IMAGE_BYTES = size_t(Renderer::W) * Renderer::H * 2;
 static const uint32_t FRAME_MS = 20;
 static const uint32_t SAVE_DELAY_MS = 2000;
+static const size_t ANIM_MAX_BYTES = 3 * 1024 * 1024;
 
 static Arduino_RGB_Display *gfx;
 static Renderer renderer;
@@ -100,15 +102,117 @@ static String imagePath(int slot) {
     return "/img" + String(slot) + ".bin";
 }
 
+static String animPath(int slot) {
+    return "/anim" + String(slot) + ".mjp";
+}
+
+// Animations are a sequence of 480x480 JPEG frames, built by the phone page:
+//   "EMJ1", uint16 frame count, uint16 reserved,
+//   then per frame: uint16 delay (ms), uint16 reserved, uint32 length, JPEG data.
+// The whole file is kept in PSRAM while it plays.
+struct Animation {
+    uint8_t *data = nullptr;
+    uint32_t *offset = nullptr;
+    uint32_t *length = nullptr;
+    uint16_t *delay = nullptr;
+    uint16_t count = 0;
+    uint16_t index = 0;
+    uint32_t nextAt = 0;
+};
+static Animation anim;
+static JPEGDEC jpeg;
+
+static void freeAnimation() {
+    free(anim.data);
+    free(anim.offset);
+    free(anim.length);
+    free(anim.delay);
+    anim = Animation();
+}
+
+static bool parseAnimation(uint8_t *d, size_t n) {
+    if (n < 8 || memcmp(d, "EMJ1", 4) != 0) return false;
+    uint16_t count = d[4] | (d[5] << 8);
+    if (count == 0) return false;
+    anim.offset = static_cast<uint32_t *>(malloc(count * sizeof(uint32_t)));
+    anim.length = static_cast<uint32_t *>(malloc(count * sizeof(uint32_t)));
+    anim.delay = static_cast<uint16_t *>(malloc(count * sizeof(uint16_t)));
+    if (!anim.offset || !anim.length || !anim.delay) return false;
+    size_t pos = 8;
+    for (uint16_t i = 0; i < count; i++) {
+        if (pos + 8 > n) return false;
+        anim.delay[i] = d[pos] | (d[pos + 1] << 8);
+        uint32_t len = d[pos + 4] | (d[pos + 5] << 8) | (d[pos + 6] << 16) | (uint32_t(d[pos + 7]) << 24);
+        pos += 8;
+        if (pos + len > n) return false;
+        anim.offset[i] = pos;
+        anim.length[i] = len;
+        pos += len;
+    }
+    anim.count = count;
+    return true;
+}
+
+static int jpegDraw(JPEGDRAW *p) {
+    uint16_t *dst = renderer.imageBuffer();
+    int w = p->iWidthUsed;
+    if (p->x + w > Renderer::W) w = Renderer::W - p->x;
+    if (w <= 0) return 1;
+    for (int r = 0; r < p->iHeight && p->y + r < Renderer::H; r++) {
+        memcpy(dst + (p->y + r) * Renderer::W + p->x, p->pPixels + r * p->iWidth, w * 2);
+    }
+    return 1;
+}
+
+static bool decodeFrame(uint16_t i) {
+    if (!jpeg.openRAM(anim.data + anim.offset[i], anim.length[i], jpegDraw)) return false;
+    jpeg.setPixelType(RGB565_LITTLE_ENDIAN);
+    bool ok = jpeg.decode(0, 0, 0) == 1;
+    jpeg.close();
+    return ok;
+}
+
+static bool loadAnimation(const String &path) {
+    File f = LittleFS.open(path, "r");
+    if (!f) return false;
+    size_t n = f.size();
+    anim.data = static_cast<uint8_t *>(psramAlloc(n));
+    bool ok = anim.data && f.read(anim.data, n) == n && parseAnimation(anim.data, n) && decodeFrame(0);
+    f.close();
+    if (!ok) {
+        logf("Animation %s could not be loaded\n", path.c_str());
+        freeAnimation();
+        return false;
+    }
+    anim.nextAt = millis() + anim.delay[0];
+    logf("Animation %s: %u frames, %u KB\n", path.c_str(), anim.count, unsigned(n / 1024));
+    return true;
+}
+
+// Loads the picture or animation in the selected slot into the renderer.
 static void loadImage() {
     if (!displayOk) return;
+    freeAnimation();
+    const int slot = settings.imageSlot;
+    if (LittleFS.exists(animPath(slot))) {
+        renderer.imageChanged(loadAnimation(animPath(slot)));
+        return;
+    }
     bool ok = false;
-    File f = LittleFS.open(imagePath(settings.imageSlot), "r");
+    File f = LittleFS.open(imagePath(slot), "r");
     if (f && f.size() == IMAGE_BYTES) {
         ok = f.read(reinterpret_cast<uint8_t *>(renderer.imageBuffer()), IMAGE_BYTES) == IMAGE_BYTES;
     }
     if (f) f.close();
     renderer.imageChanged(ok);
+}
+
+// Shows the next animation frame when it's due.
+static void stepAnimation(uint32_t now) {
+    if (anim.count < 2 || settings.mode != MODE_IMAGE || int32_t(now - anim.nextAt) < 0) return;
+    anim.index = (anim.index + 1) % anim.count;
+    if (decodeFrame(anim.index)) renderer.imageChanged(true);
+    anim.nextAt = now + max<uint16_t>(anim.delay[anim.index], 20);
 }
 
 static void loadSettings() {
@@ -182,9 +286,12 @@ static void sendState() {
     j += ",\"slots\":[";
     for (int i = 0; i < IMAGE_SLOTS; i++) {
         if (i) j += ",";
-        j += LittleFS.exists(imagePath(i)) ? "1" : "0";
+        j += LittleFS.exists(animPath(i)) ? "2" : (LittleFS.exists(imagePath(i)) ? "1" : "0");
     }
-    j += "]}";
+    j += "],\"fsUsed\":" + String(unsigned(LittleFS.usedBytes()));
+    j += ",\"fsTotal\":" + String(unsigned(LittleFS.totalBytes()));
+    j += ",\"animMax\":" + String(unsigned(ANIM_MAX_BYTES));
+    j += "}";
     server.sendHeader("Cache-Control", "no-store");
     server.send(200, "application/json", j);
 }
@@ -246,18 +353,49 @@ static void handleSet() {
 
 static File uploadFile;
 static size_t uploadBytes;
+static size_t uploadLimit;
 
-static void handleImageUpload() {
+// Streams an upload to /upload.tmp; stops writing once it passes uploadLimit.
+static void handleUpload(size_t limit) {
     HTTPUpload &up = server.upload();
     if (up.status == UPLOAD_FILE_START) {
         uploadBytes = 0;
+        uploadLimit = limit;
+        LittleFS.remove("/upload.tmp");
         uploadFile = LittleFS.open("/upload.tmp", "w");
     } else if (up.status == UPLOAD_FILE_WRITE) {
-        if (uploadFile) uploadFile.write(up.buf, up.currentSize);
         uploadBytes += up.currentSize;
+        if (uploadFile && uploadBytes <= uploadLimit && uploadFile.write(up.buf, up.currentSize) != up.currentSize) {
+            uploadFile.close();  // storage full
+        }
     } else if (up.status == UPLOAD_FILE_END || up.status == UPLOAD_FILE_ABORTED) {
         if (uploadFile) uploadFile.close();
     }
+}
+
+// Moves the finished upload into a slot, replacing whatever the slot held.
+static bool storeUpload(long slot, const String &path) {
+    File f = LittleFS.open("/upload.tmp", "r");
+    size_t stored = f ? f.size() : 0;
+    if (f) f.close();
+    if (stored != uploadBytes) {
+        LittleFS.remove("/upload.tmp");
+        server.send(507, "text/plain", "Storage is full. Delete a picture or animation and try again.");
+        return false;
+    }
+    LittleFS.remove(imagePath(slot));
+    LittleFS.remove(animPath(slot));
+    if (!LittleFS.rename("/upload.tmp", path)) {
+        server.send(500, "text/plain", "Could not save the file");
+        return false;
+    }
+    settings.mode = MODE_IMAGE;
+    settings.imageSlot = slot;
+    loadImage();
+    if (displayOk) renderer.apply(settings);
+    saveAt = millis() + SAVE_DELAY_MS;
+    sendState();
+    return true;
 }
 
 static void handleImageDone() {
@@ -267,22 +405,31 @@ static void handleImageDone() {
         server.send(400, "text/plain", "Expected a 480x480 RGB565 image (" + String(IMAGE_BYTES) + " bytes)");
         return;
     }
-    LittleFS.remove(imagePath(slot));
-    if (!LittleFS.rename("/upload.tmp", imagePath(slot))) {
-        server.send(500, "text/plain", "Could not save image (storage full?)");
+    storeUpload(slot, imagePath(slot));
+}
+
+static void handleAnimDone() {
+    long slot = server.arg("slot").toInt();
+    char magic[4] = {0};
+    File f = LittleFS.open("/upload.tmp", "r");
+    if (f) {
+        f.read(reinterpret_cast<uint8_t *>(magic), 4);
+        f.close();
+    }
+    if (slot < 0 || slot >= IMAGE_SLOTS || uploadBytes > ANIM_MAX_BYTES || memcmp(magic, "EMJ1", 4) != 0) {
+        LittleFS.remove("/upload.tmp");
+        server.send(400, "text/plain", "Not a valid animation, or larger than " + String(ANIM_MAX_BYTES / 1024 / 1024) + " MB");
         return;
     }
-    settings.mode = MODE_IMAGE;
-    settings.imageSlot = slot;
-    loadImage();
-    if (displayOk) renderer.apply(settings);
-    saveAt = millis() + SAVE_DELAY_MS;
-    sendState();
+    storeUpload(slot, animPath(slot));
 }
 
 static void handleImageDelete() {
     long slot = server.arg("slot").toInt();
-    if (slot >= 0 && slot < IMAGE_SLOTS) LittleFS.remove(imagePath(slot));
+    if (slot >= 0 && slot < IMAGE_SLOTS) {
+        LittleFS.remove(imagePath(slot));
+        LittleFS.remove(animPath(slot));
+    }
     if (settings.mode == MODE_IMAGE && settings.imageSlot == slot) loadImage();
     sendState();
 }
@@ -357,7 +504,8 @@ static void setupWeb() {
     server.on("/", HTTP_GET, handleRoot);
     server.on("/api/state", HTTP_GET, sendState);
     server.on("/api/set", HTTP_POST, handleSet);
-    server.on("/api/image", HTTP_POST, handleImageDone, handleImageUpload);
+    server.on("/api/image", HTTP_POST, handleImageDone, [] { handleUpload(IMAGE_BYTES); });
+    server.on("/api/anim", HTTP_POST, handleAnimDone, [] { handleUpload(ANIM_MAX_BYTES); });
     server.on("/api/image/delete", HTTP_POST, handleImageDelete);
     server.on("/api/wifi", HTTP_POST, handleWifi);
     server.on("/api/panel", HTTP_POST, handlePanel);
@@ -446,6 +594,7 @@ void loop() {
 
     static uint32_t lastFrame = 0;
     uint32_t now = millis();
+    if (displayOk) stepAnimation(now);
     if (displayOk && now - lastFrame >= FRAME_MS) {
         lastFrame = now;
         Rect r = renderer.render(now);
