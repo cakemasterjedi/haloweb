@@ -7,6 +7,8 @@
 #include <Wire.h>
 #include <Arduino_GFX_Library.h>
 #include <driver/spi_master.h>
+#include <esp_lcd_panel_ops.h>
+#include <esp_lcd_panel_rgb.h>
 
 #define I2C_SDA 15
 #define I2C_SCL 7
@@ -261,23 +263,43 @@ inline const PanelType &panelType(uint8_t type) {
     return PANEL_TYPES[type < PANEL_TYPE_COUNT ? type : 0];
 }
 
-// The panel must already have its set-up commands (panelSendInit); the display
-// object only drives the RGB pixel bus.
-inline Arduino_RGB_Display *createDisplay(uint8_t type) {
+// RGB pixel bus, driven with ESP-IDF's esp_lcd driver directly (as in
+// Waveshare's demo): frame buffer in PSRAM, frames pushed with
+// esp_lcd_panel_draw_bitmap(). The panel must already have its set-up
+// commands (panelSendInit).
+inline esp_lcd_panel_handle_t createPanel(uint8_t type, uint32_t pclkHz = 16000000) {
     const PanelType &p = panelType(type);
-    Arduino_ESP32RGBPanel *rgbpanel = new Arduino_ESP32RGBPanel(
-        40 /* DE */, 39 /* VSYNC */, 38 /* HSYNC */, 41 /* PCLK */,
-        46 /* R1 */, 3 /* R2 */, 8 /* R3 */, 18 /* R4 */, 17 /* R5 */,
-        14 /* G0 */, 13 /* G1 */, 12 /* G2 */, 11 /* G3 */, 10 /* G4 */, 9 /* G5 */,
-        5 /* B1 */, 45 /* B2 */, 48 /* B3 */, 47 /* B4 */, 21 /* B5 */,
-        p.hsyncPol, p.hfp, p.hpw, p.hbp,
-        p.vsyncPol, p.vfp, p.vpw, p.vbp,
-        p.pclkNeg, 16000000L /* prefer_speed */
-    );
+    esp_lcd_rgb_panel_config_t cfg = {};
+    cfg.clk_src = LCD_CLK_SRC_PLL160M;
+    cfg.timings.pclk_hz = pclkHz;
+    cfg.timings.h_res = 480;
+    cfg.timings.v_res = 480;
+    cfg.timings.hsync_pulse_width = p.hpw;
+    cfg.timings.hsync_back_porch = p.hbp;
+    cfg.timings.hsync_front_porch = p.hfp;
+    cfg.timings.vsync_pulse_width = p.vpw;
+    cfg.timings.vsync_back_porch = p.vbp;
+    cfg.timings.vsync_front_porch = p.vfp;
+    cfg.timings.flags.hsync_idle_low = p.hsyncPol == 0;
+    cfg.timings.flags.vsync_idle_low = p.vsyncPol == 0;
+    cfg.timings.flags.pclk_active_neg = p.pclkNeg;
+    cfg.data_width = 16;
+    cfg.sram_trans_align = 8;
+    cfg.psram_trans_align = 64;
+    cfg.hsync_gpio_num = 38;
+    cfg.vsync_gpio_num = 39;
+    cfg.de_gpio_num = 40;
+    cfg.pclk_gpio_num = 41;
+    const int data[16] = {5, 45, 48, 47, 21,       // B1..B5
+                          14, 13, 12, 11, 10, 9,   // G0..G5
+                          46, 3, 8, 18, 17};       // R1..R5
+    for (int i = 0; i < 16; i++) cfg.data_gpio_nums[i] = data[i];
+    cfg.disp_gpio_num = -1;
+    cfg.flags.fb_in_psram = 1;
 
-    return new Arduino_RGB_Display(
-        480 /* width */, 480 /* height */, rgbpanel, 0 /* rotation */, true /* auto_flush */,
-        nullptr /* no set-up bus: done by panelSendInit */,
-        GFX_NOT_DEFINED /* RST */, nullptr, 0
-    );
+    esp_lcd_panel_handle_t panel = nullptr;
+    if (esp_lcd_new_rgb_panel(&cfg, &panel) != ESP_OK) return nullptr;
+    esp_lcd_panel_reset(panel);
+    esp_lcd_panel_init(panel);
+    return panel;
 }
