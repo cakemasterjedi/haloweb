@@ -6,6 +6,7 @@
 #include <Arduino.h>
 #include <Wire.h>
 #include <Arduino_GFX_Library.h>
+#include <driver/spi_master.h>
 
 #define I2C_SDA 15
 #define I2C_SCL 7
@@ -183,8 +184,87 @@ inline void displayDeselect() {
     expanderSet(EXIO_LCD_CS, true);
 }
 
+// Sends a panel's set-up commands the way Waveshare's demo does: hardware SPI,
+// mode 0, every byte as a 9-bit word (1 D/C bit - 0 command, 1 data - then 8
+// bits), chip select held low by the expander. Bit-banging this was too fast
+// for the panel. The bus is released afterwards so the SD card can use the pins.
+// Returns 0 on success, otherwise a code saying what failed.
+inline int panelSendInit(const uint8_t *ops, size_t len, uint32_t hz = 10000000) {
+    spi_bus_config_t bus = {};
+    bus.mosi_io_num = 1;
+    bus.miso_io_num = -1;
+    bus.sclk_io_num = 2;
+    bus.quadwp_io_num = -1;
+    bus.quadhd_io_num = -1;
+    bus.max_transfer_sz = 64;
+    if (spi_bus_initialize(SPI2_HOST, &bus, SPI_DMA_CH_AUTO) != ESP_OK) return 1;
+
+    spi_device_interface_config_t dev = {};
+    dev.command_bits = 1;
+    dev.address_bits = 8;
+    dev.mode = 0;
+    dev.clock_speed_hz = hz;
+    dev.spics_io_num = -1;
+    dev.queue_size = 1;
+    spi_device_handle_t handle;
+    if (spi_bus_add_device(SPI2_HOST, &dev, &handle) != ESP_OK) {
+        spi_bus_free(SPI2_HOST);
+        return 2;
+    }
+
+    auto send = [&](uint8_t dc, uint8_t value) {
+        spi_transaction_t t = {};
+        t.cmd = dc;
+        t.addr = value;
+        spi_device_polling_transmit(handle, &t);
+    };
+
+    int result = 0;
+    for (size_t i = 0; i < len && result == 0;) {
+        switch (ops[i++]) {
+            case BEGIN_WRITE:
+            case END_WRITE:
+                break;
+            case WRITE_COMMAND_8:
+                send(0, ops[i++]);
+                break;
+            case WRITE_DATA_8:
+                send(1, ops[i++]);
+                break;
+            case WRITE_BYTES: {
+                uint8_t n = ops[i++];
+                while (n--) send(1, ops[i++]);
+                break;
+            }
+            case WRITE_C8_D8:
+                send(0, ops[i++]);
+                send(1, ops[i++]);
+                break;
+            case WRITE_C8_D16:
+                send(0, ops[i++]);
+                send(1, ops[i++]);
+                send(1, ops[i++]);
+                break;
+            case DELAY:
+                delay(ops[i++]);
+                break;
+            default:
+                result = 3;  // an operation these tables don't use
+        }
+    }
+    spi_bus_remove_device(handle);
+    spi_bus_free(SPI2_HOST);
+    return result;
+}
+
+inline const PanelType &panelType(uint8_t type) {
+    return PANEL_TYPES[type < PANEL_TYPE_COUNT ? type : 0];
+}
+
+// The panel must already have its set-up commands (panelSendInit); the display
+// object only drives the RGB pixel bus.
 inline Arduino_RGB_Display *createDisplay(uint8_t type) {
-    const PanelType &p = PANEL_TYPES[type < PANEL_TYPE_COUNT ? type : 0];
+    const PanelType &p = panelType(type);
     Arduino_ESP32RGBPanel *rgbpanel = new Arduino_ESP32RGBPanel(
         40 /* DE */, 39 /* VSYNC */, 38 /* HSYNC */, 41 /* PCLK */,
         46 /* R1 */, 3 /* R2 */, 8 /* R3 */, 18 /* R4 */, 17 /* R5 */,
@@ -197,7 +277,7 @@ inline Arduino_RGB_Display *createDisplay(uint8_t type) {
 
     return new Arduino_RGB_Display(
         480 /* width */, 480 /* height */, rgbpanel, 0 /* rotation */, true /* auto_flush */,
-        new Arduino_SWSPI(GFX_NOT_DEFINED /* DC */, GFX_NOT_DEFINED /* CS */, 2 /* SCK */, 1 /* MOSI */, GFX_NOT_DEFINED /* MISO */),
-        GFX_NOT_DEFINED /* RST */, p.init, p.initLen
+        nullptr /* no set-up bus: done by panelSendInit */,
+        GFX_NOT_DEFINED /* RST */, nullptr, 0
     );
 }
