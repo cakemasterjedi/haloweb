@@ -13,7 +13,7 @@ enum Mode : uint8_t {
     MODE_COUNT
 };
 
-static const uint8_t IMAGE_SLOTS = 5;
+static const uint8_t IMAGE_SLOTS = 10;
 static const uint32_t SETTINGS_VERSION = 4;
 
 struct Settings {

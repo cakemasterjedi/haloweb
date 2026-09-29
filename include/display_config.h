@@ -1,7 +1,8 @@
 #pragma once
-// Pin-out for the Waveshare-style ESP32-S3 2.8" round 480x480 board: ST7701S
-// RGB panel, TCA9554/PCA9554 I/O expander on I2C (LCD reset + SPI chip
-// select), backlight on a GPIO.
+// Pin-out for the Waveshare ESP32-S3-LCD-2.8C (2.8" round 480x480):
+// ST7701S RGB panel, TCA9554 I/O expander on I2C (EXIO1 = LCD reset,
+// EXIO3 = LCD SPI chip select), backlight PWM on GPIO6. See
+// https://www.waveshare.com/wiki/ESP32-S3-LCD-2.8C
 #include <Arduino.h>
 #include <Wire.h>
 #include <Arduino_GFX_Library.h>
@@ -14,16 +15,112 @@
 #define EXIO_LCD_RST 0  // EXIO1
 #define EXIO_TP_RST 1   // EXIO2
 #define EXIO_LCD_CS 2   // EXIO3
+#define EXIO_SD_D3 3    // EXIO4
+
+// Micro SD card (SD_MMC, 1-bit mode). CLK/CMD are shared with the display's
+// set-up bus, which is only used once at boot.
+#define SD_CLK 2
+#define SD_CMD 1
+#define SD_D0 42
 
 // Backlight PWM pin. Set to -1 to dim in software instead.
 #ifndef LCD_BL_PIN
 #define LCD_BL_PIN 6
 #endif
 
-// The ST7701 needs a start-up sequence matched to the glass it is bonded to,
-// and sellers don't say which one they used. These are the candidates for
-// 480x480 round panels; pick one from the phone page (Wi-Fi & system) if the
-// screen stays black or the colours look wrong.
+// Start-up sequence from Waveshare's own ESP32-S3-LCD-2.8C demo
+// (Display_ST7701.cpp in ESP32-S3-LCD-2.8C-Demo.zip), converted to
+// Arduino_GFX init operations.
+static const uint8_t waveshare_2_8c_init_operations[] = {
+    BEGIN_WRITE,
+    WRITE_COMMAND_8, 0xFF,
+    WRITE_BYTES, 5, 0x77, 0x01, 0x00, 0x00, 0x13,
+    WRITE_COMMAND_8, 0xEF,
+    WRITE_BYTES, 1, 0x08,
+    WRITE_COMMAND_8, 0xFF,
+    WRITE_BYTES, 5, 0x77, 0x01, 0x00, 0x00, 0x10,
+    WRITE_COMMAND_8, 0xC0,
+    WRITE_BYTES, 2, 0x3B, 0x00,
+    WRITE_COMMAND_8, 0xC1,
+    WRITE_BYTES, 2, 0x10, 0x0C,
+    WRITE_COMMAND_8, 0xC2,
+    WRITE_BYTES, 2, 0x07, 0x0A,
+    WRITE_COMMAND_8, 0xC7,
+    WRITE_BYTES, 1, 0x00,
+    WRITE_COMMAND_8, 0xCC,
+    WRITE_BYTES, 1, 0x10,
+    WRITE_COMMAND_8, 0xCD,
+    WRITE_BYTES, 1, 0x08,
+    WRITE_COMMAND_8, 0xB0,
+    WRITE_BYTES, 16, 0x05, 0x12, 0x98, 0x0E, 0x0F, 0x07, 0x07, 0x09, 0x09, 0x23, 0x05, 0x52, 0x0F, 0x67, 0x2C, 0x11,
+    WRITE_COMMAND_8, 0xB1,
+    WRITE_BYTES, 16, 0x0B, 0x11, 0x97, 0x0C, 0x12, 0x06, 0x06, 0x08, 0x08, 0x22, 0x03, 0x51, 0x11, 0x66, 0x2B, 0x0F,
+    WRITE_COMMAND_8, 0xFF,
+    WRITE_BYTES, 5, 0x77, 0x01, 0x00, 0x00, 0x11,
+    WRITE_COMMAND_8, 0xB0,
+    WRITE_BYTES, 1, 0x5D,
+    WRITE_COMMAND_8, 0xB1,
+    WRITE_BYTES, 1, 0x3E,
+    WRITE_COMMAND_8, 0xB2,
+    WRITE_BYTES, 1, 0x81,
+    WRITE_COMMAND_8, 0xB3,
+    WRITE_BYTES, 1, 0x80,
+    WRITE_COMMAND_8, 0xB5,
+    WRITE_BYTES, 1, 0x4E,
+    WRITE_COMMAND_8, 0xB7,
+    WRITE_BYTES, 1, 0x85,
+    WRITE_COMMAND_8, 0xB8,
+    WRITE_BYTES, 1, 0x20,
+    WRITE_COMMAND_8, 0xC1,
+    WRITE_BYTES, 1, 0x78,
+    WRITE_COMMAND_8, 0xC2,
+    WRITE_BYTES, 1, 0x78,
+    WRITE_COMMAND_8, 0xD0,
+    WRITE_BYTES, 1, 0x88,
+    WRITE_COMMAND_8, 0xE0,
+    WRITE_BYTES, 3, 0x00, 0x00, 0x02,
+    WRITE_COMMAND_8, 0xE1,
+    WRITE_BYTES, 11, 0x06, 0x30, 0x08, 0x30, 0x05, 0x30, 0x07, 0x30, 0x00, 0x33, 0x33,
+    WRITE_COMMAND_8, 0xE2,
+    WRITE_BYTES, 12, 0x11, 0x11, 0x33, 0x33, 0xF4, 0x00, 0x00, 0x00, 0xF4, 0x00, 0x00, 0x00,
+    WRITE_COMMAND_8, 0xE3,
+    WRITE_BYTES, 4, 0x00, 0x00, 0x11, 0x11,
+    WRITE_COMMAND_8, 0xE4,
+    WRITE_BYTES, 2, 0x44, 0x44,
+    WRITE_COMMAND_8, 0xE5,
+    WRITE_BYTES, 16, 0x0D, 0xF5, 0x30, 0xF0, 0x0F, 0xF7, 0x30, 0xF0, 0x09, 0xF1, 0x30, 0xF0, 0x0B, 0xF3, 0x30, 0xF0,
+    WRITE_COMMAND_8, 0xE6,
+    WRITE_BYTES, 4, 0x00, 0x00, 0x11, 0x11,
+    WRITE_COMMAND_8, 0xE7,
+    WRITE_BYTES, 2, 0x44, 0x44,
+    WRITE_COMMAND_8, 0xE8,
+    WRITE_BYTES, 16, 0x0C, 0xF4, 0x30, 0xF0, 0x0E, 0xF6, 0x30, 0xF0, 0x08, 0xF0, 0x30, 0xF0, 0x0A, 0xF2, 0x30, 0xF0,
+    WRITE_COMMAND_8, 0xE9,
+    WRITE_BYTES, 2, 0x36, 0x01,
+    WRITE_COMMAND_8, 0xEB,
+    WRITE_BYTES, 7, 0x00, 0x01, 0xE4, 0xE4, 0x44, 0x88, 0x40,
+    WRITE_COMMAND_8, 0xED,
+    WRITE_BYTES, 16, 0xFF, 0x10, 0xAF, 0x76, 0x54, 0x2B, 0xCF, 0xFF, 0xFF, 0xFC, 0xB2, 0x45, 0x67, 0xFA, 0x01, 0xFF,
+    WRITE_COMMAND_8, 0xEF,
+    WRITE_BYTES, 6, 0x08, 0x08, 0x08, 0x45, 0x3F, 0x54,
+    WRITE_COMMAND_8, 0xFF,
+    WRITE_BYTES, 5, 0x77, 0x01, 0x00, 0x00, 0x00,
+    WRITE_COMMAND_8, 0x11,
+    END_WRITE,
+    DELAY, 120,
+    BEGIN_WRITE,
+    WRITE_COMMAND_8, 0x3A,
+    WRITE_BYTES, 1, 0x66,
+    WRITE_COMMAND_8, 0x36,
+    WRITE_BYTES, 1, 0x00,
+    WRITE_COMMAND_8, 0x35,
+    WRITE_BYTES, 1, 0x00,
+    WRITE_COMMAND_8, 0x29,
+    END_WRITE};
+
+// The ST7701 needs a start-up sequence matched to the glass it is bonded to.
+// The first entry is Waveshare's for this board; the others are fallbacks for
+// similar 480x480 round panels, selectable from the phone page (Wi-Fi & system).
 struct PanelType {
     const char *name;
     const uint8_t *init;
@@ -34,6 +131,9 @@ struct PanelType {
 };
 
 static const PanelType PANEL_TYPES[] = {
+    // Timings from the same demo: HPW 8, HBP 10, HFP 50, VPW 2, VBP 18, VFP 8.
+    {"Waveshare ESP32-S3-LCD-2.8C", waveshare_2_8c_init_operations, sizeof(waveshare_2_8c_init_operations),
+     1, 50, 8, 10, 1, 8, 2, 18, 0},
     {"2.8in round (TL028WVC01)", TL028WVC01_init_operations, sizeof(TL028WVC01_init_operations),
      1, 50, 1, 30, 1, 20, 1, 30, 0},
     {"2.8in round (ST7701 type 6)", st7701_type6_init_operations, sizeof(st7701_type6_init_operations),
@@ -92,7 +192,7 @@ inline Arduino_RGB_Display *createDisplay(uint8_t type) {
         5 /* B1 */, 45 /* B2 */, 48 /* B3 */, 47 /* B4 */, 21 /* B5 */,
         p.hsyncPol, p.hfp, p.hpw, p.hbp,
         p.vsyncPol, p.vfp, p.vpw, p.vbp,
-        p.pclkNeg, 12000000L /* prefer_speed */
+        p.pclkNeg, 16000000L /* prefer_speed */
     );
 
     return new Arduino_RGB_Display(

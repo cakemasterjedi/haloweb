@@ -1,5 +1,8 @@
 # Digital BMW emblem (ESP32-S3 2.8" round display)
 
+Board: [Waveshare ESP32-S3-LCD-2.8C](https://www.waveshare.com/wiki/ESP32-S3-LCD-2.8C).
+The display start-up sequence and timings come from Waveshare's own demo code.
+
 Firmware that turns the ESP32-S3 2.8" 480×480 round display board into a
 digital roundel for the car. You control it from your phone's browser, so
 there's no app to install.
@@ -12,7 +15,7 @@ there's no app to install.
 | **Spin** | Roundel with the quarters rotating | spin speed / direction |
 | **M Stripes** | Tri-colour stripes on a carbon-weave background | 0 = static, otherwise scrolls |
 | **Colour** | Solid colour | 0 = steady, otherwise breathes |
-| **Picture** | Any photo from your phone (5 slots, crop/zoom/rotate in the browser) | – |
+| **Picture** | Photos, GIFs or videos from your phone (10 slots). Fill / Fit / Fit circle, zoom (pinch), drag, rotate. Animations play at up to ~15 fps | – |
 | **Text** | Your own text, `\|` starts a new line (e.g. `M\|POWER`) | – |
 
 All modes also have **brightness** and **rotation**. Use rotation to level the
@@ -61,13 +64,37 @@ g++ -O2 -std=c++17 -Isrc tools/host_preview.cpp src/renderer.cpp -o preview && .
                                       # renders every mode to .ppm images
 ```
 
+## Pictures & animations
+
+- **Photos** are stored at full quality (480×480).
+- **GIFs / animated WebP** keep their own timing. The phone needs a browser that
+  can read them frame by frame (Chrome / Android); other browsers use the first
+  frame.
+- **Videos** (MP4, WebM, MOV): pick the frame rate (10–25 fps) and length
+  (up to 15 s).
+- **Size limits:** animations play straight from storage, so the limit is free
+  space. Internal flash (~12 MB) allows up to 8 MB per animation; a micro SD
+  card allows up to 32 MB. If a clip is too big, the page lowers the quality,
+  then drops frames, until it fits. The line under the slots shows which
+  storage is in use and how much is free.
+- **Micro SD card:** optional. Insert it (FAT32) *before* powering up; the
+  emblem then stores pictures in an `/emblem` folder on the card. Without a
+  card it uses the internal flash. Pictures on one aren't copied to the other.
+
 ## Hardware notes
 
-- **Pins** are in `include/display_config.h`. They were taken from the
-  original test sketch.
-- **Brightness** is done in software by default. If your board has the
-  backlight on a PWM pin (GPIO6 on most of these Waveshare boards), add
-  `-DLCD_BL_PIN=6` to `build_flags` to get real backlight dimming.
+- **PSRAM:** this board has *quad* (QSPI) PSRAM, so `platformio.ini` uses
+  `memory_type = qio_qspi`. With `qio_opi` it doesn't boot at all: no screen,
+  no Wi-Fi, no serial output.
+- **Hardware check:** `pio run -e diag -t upload` flashes a test that skips
+  the display, starts an open `EMBLEM-TEST` network and reports chip, PSRAM
+  and I2C details over serial and at http://192.168.4.1.
+- **Pins** are in `include/display_config.h`.
+- **Backlight / brightness** uses PWM on GPIO6. If your board doesn't have the
+  backlight there, add `-DLCD_BL_PIN=-1` to `build_flags` to dim in software.
+- **Panel type:** the default is Waveshare's own setup for this board. If the
+  screen stays black or the colours look wrong, pick another panel type under
+  *Wi-Fi & system* on the phone page.
 - **Power in the car:** use a 12 V → 5 V USB buck converter on a switched
   (ignition) feed so it doesn't drain the battery. Fuse it.
 - **Mounting:** the display isn't weatherproof. Behind a clear, sealed cover

@@ -63,6 +63,12 @@
   .slot { aspect-ratio: 1; border-radius: 50%; padding: 0; overflow: hidden; position: relative; font-size: 12px; color: var(--muted); }
   .slot img { width: 100%; height: 100%; object-fit: cover; display: block; }
   .slot.on { outline: 3px solid var(--accent); outline-offset: 2px; background: #1f232a; color: var(--text); }
+  .slot .badge { position: absolute; right: 50%; bottom: 4px; transform: translateX(50%); background: rgba(0,0,0,.7); color: #fff;
+    border-radius: 8px; padding: 0 5px; font-size: 10px; line-height: 16px; }
+  .seg { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: 8px 0; }
+  .seg button { padding: 8px 4px; font-size: 14px; }
+  .progress { height: 6px; background: #0f1115; border-radius: 3px; overflow: hidden; margin: 10px 0 4px; }
+  .progress div { height: 100%; width: 0; background: var(--accent); transition: width .15s; }
   #crop { width: 100%; max-width: 240px; aspect-ratio: 1; border-radius: 50%; display: block; margin: 10px auto; background: #000; touch-action: none; }
   .hint { color: var(--muted); font-size: 13px; margin: 6px 0; }
   .hidden { display: none !important; }
@@ -129,22 +135,36 @@
   </section>
 
   <section class="card panel" data-modes="4">
-    <h2>Pictures</h2>
+    <h2>Pictures &amp; animations</h2>
     <div class="slots" id="slots"></div>
-    <p class="hint">Tap a slot to show it. Pick a photo to put in the selected slot.</p>
-    <input type="file" id="file" accept="image/*" class="hidden">
+    <p class="hint">Tap a slot to show it. Choose a photo, GIF or video to put in the selected slot.</p>
+    <input type="file" id="file" accept="image/*,video/*" class="hidden">
     <div class="split">
-      <button id="pick">Choose photo…</button>
+      <button id="pick">Choose file…</button>
       <button id="del" class="danger">Delete slot</button>
     </div>
+    <p class="hint" id="storage"></p>
     <div id="cropper" class="hidden">
       <canvas id="crop" width="480" height="480"></canvas>
-      <div class="row"><label for="zoom">Zoom</label><input type="range" id="zoom" min="100" max="400" value="100"></div>
-      <p class="hint">Drag the picture to position it.</p>
+      <p class="hint" id="srcInfo" style="text-align:center"></p>
+      <div class="seg" id="fitModes">
+        <button data-fit="fill">Fill</button>
+        <button data-fit="fit">Fit</button>
+        <button data-fit="circle">Fit circle</button>
+      </div>
+      <div class="row"><label for="zoom">Zoom</label><input type="range" id="zoom" min="30" max="400" value="100"><output id="zoomOut">100%</output></div>
+      <div class="row"><label for="cropBg">Background</label><input type="color" id="cropBg" value="#000000" style="height:36px;flex:0 0 60px;border:none;background:none"></div>
+      <div class="row hidden" id="fpsRow"><label for="fps">Frame rate</label>
+        <select id="fps"><option value="10">10 fps</option><option value="15" selected>15 fps</option><option value="20">20 fps</option><option value="25">25 fps</option></select></div>
+      <div class="row hidden" id="lenRow"><label for="maxLen">Length</label><input type="range" id="maxLen" min="1" max="60" value="8"><output id="lenOut">8 s</output></div>
+      <p class="hint">Drag to position. Pinch or use Zoom to resize.</p>
       <div class="split">
         <button id="rot">Rotate 90°</button>
-        <button id="upload" class="primary">Send to emblem</button>
+        <button id="center">Re-centre</button>
       </div>
+      <div class="progress hidden" id="progress"><div></div></div>
+      <p class="hint hidden" id="progressText"></p>
+      <button id="upload" class="primary" style="margin-top:10px">Send to emblem</button>
     </div>
   </section>
 
@@ -329,6 +349,11 @@ function updateUi() {
 }
 
 // ---------------------------------------------------------------- pictures
+// Photos are sent as raw 480x480 RGB565. GIFs / animated WebP and videos are
+// turned into a sequence of 480x480 JPEG frames ("EMJ1" file, see main.cpp).
+
+const MAX_FRAMES = 1200;
+const IMAGE_SIZE = 480;
 
 function thumbKey(i) { return 'emblem-thumb-' + i; }
 function getThumb(i) { try { return localStorage.getItem(thumbKey(i)); } catch (e) { return null; } }
@@ -341,99 +366,367 @@ function renderSlots() {
     const b = document.createElement('button');
     b.className = 'slot' + (i === st.imageSlot ? ' on' : '');
     const t = st.slots[i] && getThumb(i);
-    b.innerHTML = t ? `<img src="${t}" alt="">` : (st.slots[i] ? `#${i + 1}` : `+`);
+    b.innerHTML = (t ? `<img src="${t}" alt="">` : (st.slots[i] ? `#${i + 1}` : '+')) +
+      (st.slots[i] === 2 ? '<span class="badge">▶</span>' : '');
     b.onclick = () => send({imageSlot: i, mode: 4});
     el.appendChild(b);
   }
+  if (st.fsTotalKB) {
+    const mb = (kb) => (kb / 1024).toFixed(kb < 10240 ? 1 : 0);
+    const where = st.storage === 'sd' ? 'Micro SD card' : 'Internal storage';
+    $('storage').textContent = `${where}: ${mb(st.fsUsedKB)} of ${mb(st.fsTotalKB)} MB used · ` +
+      `animations up to ${mb(st.animMax / 1024)} MB`;
+  }
 }
 
-const crop = {img: null, zoom: 1, rot: 0, dx: 0, dy: 0};
+// ---- sources: anything we can pull frames out of
 
-function drawCrop(ctx, size) {
-  ctx.fillStyle = '#000';
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+function stillSource(file) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve({
+      kind: 'photo', width: img.naturalWidth, height: img.naturalHeight, count: 1,
+      frame: async () => ({image: img, delay: 0}),
+      close() { URL.revokeObjectURL(img.src); },
+    });
+    img.onerror = () => reject(new Error("Can't read that picture"));
+    img.src = URL.createObjectURL(file);
+  });
+}
+
+// GIF, animated WebP/PNG via the browser's ImageDecoder (Chrome / Android).
+async function decoderSource(file) {
+  const dec = new ImageDecoder({data: await file.arrayBuffer(), type: file.type});
+  await dec.tracks.ready;
+  await dec.completed;
+  const count = Math.min(dec.tracks.selectedTrack.frameCount, MAX_FRAMES);
+  const first = await dec.decode({frameIndex: 0});
+  const width = first.image.displayWidth, height = first.image.displayHeight;
+  first.image.close();
+  let last = null;
+  return {
+    kind: 'animation', width, height, count,
+    async frame(i) {
+      const r = await dec.decode({frameIndex: i});
+      if (last) last.close();
+      last = r.image;
+      return {image: r.image, delay: r.image.duration ? r.image.duration / 1000 : 100};
+    },
+    close() { if (last) last.close(); dec.close(); },
+  };
+}
+
+function videoSource(file) {
+  return new Promise((resolve, reject) => {
+    const v = document.createElement('video');
+    v.muted = true;
+    v.playsInline = true;
+    v.preload = 'auto';
+    v.onloadeddata = () => {
+      const src = {
+        kind: 'video', video: v, width: v.videoWidth, height: v.videoHeight,
+        duration: v.duration,
+        get count() { return Math.max(1, Math.min(MAX_FRAMES, Math.floor(Math.min(this.duration, +$('maxLen').value) * +$('fps').value))); },
+        async frame(i) {
+          const fps = +$('fps').value;
+          v.pause();
+          await new Promise((ok) => { v.onseeked = ok; v.currentTime = Math.min(this.duration - 0.01, (i + 0.5) / fps); });
+          return {image: v, delay: 1000 / fps};
+        },
+        close() { v.pause(); URL.revokeObjectURL(v.src); },
+      };
+      resolve(src);
+    };
+    v.onerror = () => reject(new Error("This video format can't be read here (try MP4)"));
+    v.src = URL.createObjectURL(file);
+  });
+}
+
+async function loadSource(file) {
+  if (file.type.startsWith('video/')) return videoSource(file);
+  if (/gif|webp|png|avif/.test(file.type)) {
+    if ('ImageDecoder' in window) {
+      try {
+        const s = await decoderSource(file);
+        if (s.count > 1) return s;
+        s.close();
+      } catch (e) { /* fall back to a still */ }
+    } else if (file.type === 'image/gif') {
+      toast("This browser can't read GIF animations - using the first frame. Try Chrome, or send a video.", 5000);
+    }
+  }
+  return stillSource(file);
+}
+
+// ---- cropping
+
+const crop = {src: null, zoom: 1, rot: 0, dx: 0, dy: 0, fit: 'fill', bg: '#000000', preview: null};
+
+function drawCrop(ctx, image) {
+  const size = IMAGE_SIZE;
+  ctx.fillStyle = crop.bg;
   ctx.fillRect(0, 0, size, size);
-  if (!crop.img) return;
-  const {img} = crop;
+  if (!image || !crop.src) return;
   const turned = crop.rot % 180 !== 0;
-  const iw = turned ? img.height : img.width;
-  const ih = turned ? img.width : img.height;
-  const k = Math.max(size / iw, size / ih) * crop.zoom;
+  const w = crop.src.width, h = crop.src.height;
+  const iw = turned ? h : w, ih = turned ? w : h;
+  let k;
+  if (crop.fit === 'fill') k = Math.max(size / iw, size / ih);
+  else if (crop.fit === 'fit') k = Math.min(size / iw, size / ih);
+  else k = size / Math.hypot(iw, ih);  // whole picture inside the round screen
+  k *= crop.zoom;
   ctx.save();
   ctx.translate(size / 2 + crop.dx * size, size / 2 + crop.dy * size);
   ctx.rotate(crop.rot * Math.PI / 180);
   ctx.scale(k, k);
-  ctx.drawImage(img, -img.width / 2, -img.height / 2);
+  ctx.drawImage(image, -w / 2, -h / 2, w, h);
   ctx.restore();
 }
 
-function refreshCrop() { drawCrop($('crop').getContext('2d'), 480); }
+let previewImage = null;
+function refreshCrop() {
+  drawCrop($('crop').getContext('2d'), previewImage);
+  document.querySelectorAll('#fitModes button').forEach((b) => b.classList.toggle('on', b.dataset.fit === crop.fit));
+  $('zoomOut').textContent = Math.round(crop.zoom * 100) + '%';
+  const s = crop.src;
+  if (!s) return;
+  let info = `${s.width}×${s.height}`;
+  if (s.kind !== 'photo') info += ` · ${s.count} frames`;
+  $('srcInfo').textContent = info;
+}
+
+// Plays the source in the crop box so the framing can be checked.
+async function runPreview(src) {
+  const token = crop.preview = {};
+  if (src.kind === 'video') {
+    src.video.loop = true;
+    src.video.play().catch(() => {});
+    const tick = () => {
+      if (crop.preview !== token) return;
+      previewImage = src.video;
+      refreshCrop();
+      requestAnimationFrame(tick);
+    };
+    tick();
+    return;
+  }
+  for (let i = 0; crop.preview === token; i = (i + 1) % src.count) {
+    const f = await src.frame(i);
+    if (crop.preview !== token) return;
+    previewImage = f.image;
+    refreshCrop();
+    if (src.count === 1) return;
+    await sleep(Math.max(20, f.delay));
+  }
+}
+
+function stopPreview() {
+  crop.preview = null;
+  if (crop.src) crop.src.close();
+  crop.src = null;
+  previewImage = null;
+}
+
+// ---- encoding
+
+function toBlob(canvas, type, quality) {
+  return new Promise((r) => canvas.toBlob(r, type, quality));
+}
+
+function showProgress(frac, text) {
+  $('progress').classList.remove('hidden');
+  $('progressText').classList.remove('hidden');
+  $('progress').firstElementChild.style.width = Math.round(frac * 100) + '%';
+  $('progressText').textContent = text;
+}
+
+function hideProgress() {
+  $('progress').classList.add('hidden');
+  $('progressText').classList.add('hidden');
+}
+
+function upload(url, form, onProgress) {
+  return new Promise((resolve, reject) => {
+    const x = new XMLHttpRequest();
+    x.open('POST', url);
+    x.upload.onprogress = (e) => e.lengthComputable && onProgress(e.loaded / e.total);
+    x.onload = () => (x.status < 300 ? resolve(JSON.parse(x.responseText)) : reject(new Error(x.responseText || x.statusText)));
+    x.onerror = () => reject(new Error('Connection lost'));
+    x.send(form);
+  });
+}
+
+async function encodePhoto(canvas) {
+  const d = canvas.getContext('2d').getImageData(0, 0, IMAGE_SIZE, IMAGE_SIZE).data;
+  const px = new Uint16Array(IMAGE_SIZE * IMAGE_SIZE);  // RGB565, little-endian like the ESP32
+  for (let i = 0; i < px.length; i++) {
+    px[i] = ((d[i * 4] & 0xF8) << 8) | ((d[i * 4 + 1] & 0xFC) << 3) | (d[i * 4 + 2] >> 3);
+  }
+  return new Blob([px.buffer], {type: 'application/octet-stream'});
+}
+
+// Renders every frame through the crop settings and packs them as JPEGs.
+// If the result is too big for the emblem it retries at lower quality, then
+// with every other frame dropped.
+async function encodeAnimation(src, canvas) {
+  const ctx = canvas.getContext('2d');
+  const budget = (st.animMax || 3145728) - 4096;
+  const count = src.count;
+  let quality = 0.8, step = 1;
+  // Size up a few sample frames first so big clips usually need one pass.
+  if (count > 12) {
+    let sample = 0;
+    const picks = [0, 0.25, 0.5, 0.75, 0.95].map((f) => Math.floor(f * (count - 1)));
+    for (const i of picks) {
+      drawCrop(ctx, (await src.frame(i)).image);
+      sample += (await toBlob(canvas, 'image/jpeg', quality)).size + 8;
+    }
+    const estimate = () => sample / picks.length * Math.ceil(count / step) * (quality < 0.8 ? quality / 0.8 : 1) * 1.1;
+    while (estimate() > budget && quality > 0.5) quality -= 0.15;
+    while (estimate() > budget && Math.ceil(count / step) > 2) step *= 2;
+  }
+  for (let attempt = 1; ; attempt++) {
+    const jpegs = [];
+    let total = 8;
+    for (let i = 0; i < count && total <= budget; i += step) {
+      const f = await src.frame(i);
+      drawCrop(ctx, f.image);
+      const b = await toBlob(canvas, 'image/jpeg', quality);
+      jpegs.push({data: new Uint8Array(await b.arrayBuffer()), delay: f.delay * Math.min(step, count - i)});
+      total += 8 + b.size;
+      const n = Math.ceil(count / step);
+      showProgress(jpegs.length / n, `Preparing frame ${jpegs.length} of ${n}` + (attempt > 1 ? ' (making it smaller)' : ''));
+    }
+    if (total <= budget) {
+      const out = new Uint8Array(total);
+      const dv = new DataView(out.buffer);
+      out.set([0x45, 0x4D, 0x4A, 0x31]);  // "EMJ1"
+      dv.setUint16(4, jpegs.length, true);
+      let pos = 8;
+      for (const j of jpegs) {
+        dv.setUint16(pos, Math.max(20, Math.min(65535, Math.round(j.delay))), true);
+        dv.setUint32(pos + 4, j.data.length, true);
+        out.set(j.data, pos + 8);
+        pos += 8 + j.data.length;
+      }
+      return {blob: new Blob([out]), frames: jpegs.length};
+    }
+    if (quality > 0.45) quality -= 0.15;
+    else step *= 2;
+    if (Math.ceil(count / step) < 2) throw new Error('Too big even at low quality - try a shorter clip');
+  }
+}
 
 function setupPictures() {
   $('pick').onclick = () => $('file').click();
-  $('file').onchange = () => {
+  $('file').onchange = async () => {
     const f = $('file').files[0];
+    $('file').value = '';
     if (!f) return;
-    const img = new Image();
-    img.onload = () => {
-      Object.assign(crop, {img, zoom: 1, rot: 0, dx: 0, dy: 0});
-      $('zoom').value = 100;
-      $('cropper').classList.remove('hidden');
-      refreshCrop();
-    };
-    img.src = URL.createObjectURL(f);
+    stopPreview();
+    try {
+      crop.src = await loadSource(f);
+    } catch (e) {
+      toast(e.message, 4000);
+      return;
+    }
+    Object.assign(crop, {zoom: 1, rot: 0, dx: 0, dy: 0});
+    $('zoom').value = 100;
+    $('fpsRow').classList.toggle('hidden', crop.src.kind !== 'video');
+    $('lenRow').classList.toggle('hidden', crop.src.kind !== 'video');
+    if (crop.src.kind === 'video') {
+      $('maxLen').max = Math.max(1, Math.ceil(Math.min(crop.src.duration, 60)));
+      $('maxLen').value = Math.min(+$('maxLen').value, +$('maxLen').max);
+      $('lenOut').textContent = $('maxLen').value + ' s';
+    }
+    $('cropper').classList.remove('hidden');
+    runPreview(crop.src);
   };
+  document.querySelectorAll('#fitModes button').forEach((b) => b.onclick = () => { crop.fit = b.dataset.fit; refreshCrop(); });
   $('zoom').oninput = (e) => { crop.zoom = e.target.value / 100; refreshCrop(); };
+  $('cropBg').oninput = (e) => { crop.bg = e.target.value; refreshCrop(); };
   $('rot').onclick = () => { crop.rot = (crop.rot + 90) % 360; refreshCrop(); };
+  $('center').onclick = () => { crop.dx = crop.dy = 0; refreshCrop(); };
+  $('maxLen').oninput = () => { $('lenOut').textContent = $('maxLen').value + ' s'; refreshCrop(); };
+  $('fps').onchange = refreshCrop;
 
-  let drag = null;
+  // Drag to move, pinch to zoom.
   const c = $('crop');
-  c.addEventListener('pointerdown', (e) => { drag = {x: e.clientX, y: e.clientY, dx: crop.dx, dy: crop.dy}; c.setPointerCapture(e.pointerId); });
+  const pts = new Map();
+  let start = null;
+  const snapshot = () => {
+    const p = [...pts.values()];
+    return {p, dx: crop.dx, dy: crop.dy, zoom: crop.zoom,
+      dist: p.length > 1 ? Math.hypot(p[0].x - p[1].x, p[0].y - p[1].y) : 0};
+  };
+  c.addEventListener('pointerdown', (e) => { pts.set(e.pointerId, {x: e.clientX, y: e.clientY}); c.setPointerCapture(e.pointerId); start = snapshot(); });
   c.addEventListener('pointermove', (e) => {
-    if (!drag) return;
+    if (!pts.has(e.pointerId) || !start) return;
+    pts.set(e.pointerId, {x: e.clientX, y: e.clientY});
     const w = c.getBoundingClientRect().width;
-    crop.dx = drag.dx + (e.clientX - drag.x) / w;
-    crop.dy = drag.dy + (e.clientY - drag.y) / w;
+    const p = [...pts.values()];
+    if (p.length > 1 && start.dist) {
+      crop.zoom = Math.max(0.3, Math.min(6, start.zoom * Math.hypot(p[0].x - p[1].x, p[0].y - p[1].y) / start.dist));
+      $('zoom').value = Math.round(crop.zoom * 100);
+    } else if (p.length === 1 && start.p.length === 1) {
+      crop.dx = start.dx + (p[0].x - start.p[0].x) / w;
+      crop.dy = start.dy + (p[0].y - start.p[0].y) / w;
+    }
     refreshCrop();
   });
-  c.addEventListener('pointerup', () => { drag = null; });
+  const end = (e) => { pts.delete(e.pointerId); start = pts.size ? snapshot() : null; };
+  c.addEventListener('pointerup', end);
+  c.addEventListener('pointercancel', end);
 
   $('upload').onclick = async () => {
+    const src = crop.src;
+    if (!src) return;
     const slot = st.imageSlot;
-    const cv = document.createElement('canvas');
-    cv.width = cv.height = 480;
-    const ctx = cv.getContext('2d');
-    drawCrop(ctx, 480);
-    const d = ctx.getImageData(0, 0, 480, 480).data;
-    const px = new Uint16Array(480 * 480);  // RGB565, little-endian like the ESP32
-    for (let i = 0; i < px.length; i++) {
-      px[i] = ((d[i * 4] & 0xF8) << 8) | ((d[i * 4 + 1] & 0xFC) << 3) | (d[i * 4 + 2] >> 3);
-    }
-    const t = document.createElement('canvas');
-    t.width = t.height = 96;
-    t.getContext('2d').drawImage(cv, 0, 0, 96, 96);
-    const form = new FormData();
-    form.append('file', new Blob([px.buffer], {type: 'application/octet-stream'}), 'image.bin');
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = IMAGE_SIZE;
+    const thumb = document.createElement('canvas');
+    thumb.width = thumb.height = 96;
     $('upload').disabled = true;
-    toast('Sending picture…', 10000);
+    crop.preview = null;  // pause the preview while encoding
     try {
-      const s = await api('/api/image?slot=' + slot, form);
-      setThumb(slot, t.toDataURL('image/jpeg', 0.7));
+      Object.assign(st, await api('/api/state'));  // current free space
+      const form = new FormData();
+      let url;
+      if (src.kind === 'photo') {
+        drawCrop(canvas.getContext('2d'), (await src.frame(0)).image);
+        form.append('file', await encodePhoto(canvas), 'image.bin');
+        url = '/api/image?slot=' + slot;
+      } else {
+        const a = await encodeAnimation(src, canvas);
+        form.append('file', a.blob, 'anim.mjp');
+        url = '/api/anim?slot=' + slot;
+        drawCrop(canvas.getContext('2d'), (await src.frame(0)).image);
+      }
+      thumb.getContext('2d').drawImage(canvas, 0, 0, 96, 96);
+      const s = await upload(url, form, (p) => showProgress(p, p < 1 ? `Sending ${Math.round(p * 100)}%` : 'Saving on the emblem…'));
+      setThumb(slot, thumb.toDataURL('image/jpeg', 0.7));
       st = s;
       fillControls();
+      stopPreview();
       $('cropper').classList.add('hidden');
-      toast('Picture sent');
+      toast(src.kind === 'photo' ? 'Picture sent' : 'Animation sent');
     } catch (e) {
-      toast('Upload failed: ' + e.message, 4000);
+      toast('Upload failed: ' + e.message, 5000);
+      runPreview(src);
     } finally {
+      hideProgress();
       $('upload').disabled = false;
     }
   };
 
   $('del').onclick = async () => {
-    if (!confirm('Delete picture in slot ' + (st.imageSlot + 1) + '?')) return;
+    if (!confirm('Delete slot ' + (st.imageSlot + 1) + '?')) return;
     try {
-      st = await api('/api/image/delete?slot=' + st.imageSlot, new URLSearchParams());
-      setThumb(st.imageSlot, null);
+      const slot = st.imageSlot;
+      st = await api('/api/image/delete?slot=' + slot, new URLSearchParams());
+      setThumb(slot, null);
       fillControls();
     } catch (e) { toast('Delete failed'); }
   };
@@ -629,7 +922,7 @@ function frame(ts) {
       if (t) {
         if (!thumbCache[t]) { thumbCache[t] = new Image(); thumbCache[t].src = t; }
         ctx.drawImage(thumbCache[t], 0, 0, 480, 480);
-      } else drawTextMode(ctx, st.slots[st.imageSlot] ? 'PICTURE ' + (st.imageSlot + 1) : 'NO|IMAGE', '#606060', '#000000');
+      } else drawTextMode(ctx, st.slots[st.imageSlot] ? (st.slots[st.imageSlot] === 2 ? 'ANIMATION ' : 'PICTURE ') + (st.imageSlot + 1) : 'NO|IMAGE', '#606060', '#000000');
     } else if (st.mode === 5) drawTextMode(ctx, st.text, st.textFg, st.textBg);
     // Dim the preview like the real thing.
     ctx.fillStyle = `rgba(0,0,0,${1 - st.brightness / 100})`;
