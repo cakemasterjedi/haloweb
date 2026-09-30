@@ -672,11 +672,44 @@ void Renderer::drawText() {
             frame_[i] = to565d(c, x, y);
         }
     }
+    if (s_.angle) {
+        // Turned like the other modes; the layer buffer is free in text mode.
+        memcpy(layer_, frame_, size_t(W) * H * 2);
+        layer = LAYER_NONE;
+        rotateInto(frame_, layer_, s_.angle);
+    }
+}
+
+// Copies src into dst turned clockwise about the centre (bilinear).
+void Renderer::rotateInto(uint16_t *dst, const uint16_t *src, float degrees) {
+    const float a = degrees * PI_F / 180.0f, cs = cosf(a), sn = sinf(a);
+    const int32_t stepX = int32_t(cs * 65536), stepY = int32_t(-sn * 65536);
+    const float fx0 = 0.5f - CX;
+    for (int y = 0; y < H; y++) {
+        const float fy = y + 0.5f - CY;
+        int32_t sx = int32_t((fx0 * cs + fy * sn + CX - 0.5f) * 65536);
+        int32_t sy = int32_t((-fx0 * sn + fy * cs + CY - 0.5f) * 65536);
+        uint16_t *row = dst + y * W;
+        for (int x = 0; x < W; x++, sx += stepX, sy += stepY) {
+            const int ix = sx >> 16, iy = sy >> 16;
+            if (ix < 0 || iy < 0 || ix >= W - 1 || iy >= H - 1) {
+                row[x] = 0;
+                continue;
+            }
+            const uint16_t *p = src + iy * W + ix;
+            const int tx = (sx >> 8) & 255, ty = (sy >> 8) & 255;
+            row[x] = blend565(blend565(p[0], p[1], tx), blend565(p[W], p[W + 1], tx), ty);
+        }
+    }
 }
 
 void Renderer::drawImage() {
     if (imageValid_) {
-        memcpy(frame_, image_, size_t(W) * H * 2);
+        if (s_.angle) {
+            rotateInto(frame_, image_, s_.angle);
+        } else {
+            memcpy(frame_, image_, size_t(W) * H * 2);
+        }
         return;
     }
     Settings keep = s_;
@@ -727,7 +760,7 @@ Rect Renderer::render(uint32_t ms) {
     switch (s_.mode) {
         case MODE_ROUNDEL:
         case MODE_SPIN: {
-            if (s_.mode == MODE_SPIN) phase_ += dt * (s_.speed / 100.0f) * 2 * PI_F;
+            if (s_.mode == MODE_SPIN) phase_ += dt * (s_.speed / 100.0f) * 2 * PI_F * boost_;
             bool moving = s_.mode == MODE_SPIN && s_.speed != 0;
             if (!wasDirty && !moving) return {0, 0, 0, 0};
             if (wasDirty) {
@@ -739,7 +772,7 @@ Rect Renderer::render(uint32_t ms) {
         }
         case MODE_STRIPES:
             if (s_.speed != 0) {
-                phase_ += dt * s_.speed * 1.5f;
+                phase_ += dt * s_.speed * 1.5f * boost_;
             } else if (!wasDirty) {
                 return {0, 0, 0, 0};
             }

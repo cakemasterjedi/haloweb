@@ -22,9 +22,15 @@ there's no app to install.
 All modes also have **brightness** and **rotation** (to level the emblem if it's
 mounted at an angle). Settings are saved on the board.
 
-At power-on it plays a **start-up animation**: the ring sweeps in, the
-quarters spin into place, a glint crosses the badge, then your selected mode
-takes over (can be switched off under *Settings*).
+- **Auto-cycle** (Emblem tab): rotates through the designs you pick (modes and
+  picture slots) every 5 s – 10 min. An animation finishes its loop before the
+  next design comes on.
+- **Smooth transitions:** designs crossfade into each other (Settings).
+- **Animation speed:** 25–300 % for uploaded animations (Emblem tab, shown when
+  an animation is selected).
+- **Start-up** (Settings): the built-in animation (the ring sweeps in, the
+  quarters spin into place, a glint crosses the badge), any picture or
+  animation slot, or off. Then your selected design takes over.
 
 ## Power (the Power tab)
 
@@ -44,10 +50,28 @@ takes over (can be switched off under *Settings*).
     works alongside Wi-Fi is taken by the display, so a 12 V battery can't be read
     directly.
   - Calibrate against a multimeter reading from the page.
+- **Night dimming:** its own brightness between two times (default 19:00 –
+  07:00), fading over. The board's clock chip keeps the time while it has
+  power; it's set whenever you open the page, and from the internet when it's
+  on your hotspot.
 - **"Off" is deep sleep:** screen, backlight and Wi-Fi off. Wake it with the
   **BOOT** button or by cutting and restoring power. The board still draws a
   little current asleep (regulator, USB chip, LEDs), so for zero drain use an
   ignition-switched supply.
+
+## Motion sensor (Settings tab)
+
+The board has a motion sensor (QMI8658), used for:
+
+- **Motion effects:** Spin, Stripes and animations speed up (up to 3×) when you
+  accelerate or brake. Animations keep playing while driving either way.
+- **Double-tap to change design:** tap the badge twice for the next design
+  (the next auto-cycle design, or the next mode / picture). Ignored while
+  driving. The page shows the last jolt so you can pick the sensitivity.
+- **Level:** a one-time set-up on the bench (hold it upright → Step 1, turn it
+  a quarter turn clockwise → Step 2) teaches it which way is up. Once fitted,
+  park on level ground and tap *Level now*; it sets the rotation for you.
+  Rotation now turns pictures and text as well as the roundel and stripes.
 
 ## Using it
 
@@ -149,6 +173,8 @@ src/renderer.*        draws every mode into a frame buffer (portable C++)
 src/label_font.h      bold letters for the ring (made by tools/gen_label_font.py)
 src/stroke_font.h     vector font for text mode
 src/settings.h        settings + defaults
+src/motion.*          motion sensor (acceleration, double-tap, level)
+src/rtc_clock.*       clock chip (night dimming)
 web/index.html        phone control page
 web/vendor/hevc/      HEVC video decoder for the page (hevc.js, MIT, with a tiles fix)
 include/display_config.h  board pins / display init

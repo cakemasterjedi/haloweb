@@ -9,6 +9,7 @@ Serves web/index.html and implements the same /api endpoints as the firmware
 import json
 import os
 import sys
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
@@ -30,11 +31,33 @@ state = {
     "panel": 0, "panels": ["18 MHz (recommended)", "30 MHz (Waveshare demo)", "12 MHz (lightest)"], "display": True,
     "startupAnim": 1, "powerMode": 0, "autoOffMin": 0, "showHours": 0, "showBrightness": 60,
     "lowVoltOn": 0, "cutoff": 12.0, "voltSource": 0, "volts": None, "offIn": -1, "lowFor": 0,
+    "cycleItems": 3, "cycleSec": 0, "cycling": False, "showMode": 0, "showSlot": 0, "animSpeed": 100,
+    "bootSlot": 0, "fades": 1, "autoDim": 0, "nightBrightness": 35, "nightFrom": 19 * 60, "nightTo": 7 * 60,
+    "night": False, "rtc": True, "clock": None, "imu": True, "motionReact": 0, "doubleTap": 0,
+    "levelSet": False, "moving": False, "jolt": 0.03, "boost": 0.0,
 }
+tz_min = 0
+clock_offset = None  # phone time - server time, once set
 LIMITS = {"mode": (0, 4), "brightness": (5, 100), "speed": (-100, 100), "imageSlot": (0, 9),
           "angle": (-180, 180), "spacing": (0, 30), "startupAnim": (0, 1), "powerMode": (0, 1),
           "autoOffMin": (0, 720), "showHours": (0, 48), "showBrightness": (5, 100), "lowVoltOn": (0, 1),
-          "voltSource": (0, 2)}
+          "voltSource": (0, 2), "cycleItems": (0, 0x3FFFF), "cycleSec": (0, 3600), "animSpeed": (25, 300),
+          "bootSlot": (0, 10), "fades": (0, 1), "autoDim": (0, 1), "nightBrightness": (5, 100),
+          "nightFrom": (0, 1439), "nightTo": (0, 1439), "motionReact": (0, 100), "doubleTap": (0, 3)}
+
+
+def refresh():
+    """Derived fields the firmware computes."""
+    items = sum(1 for m in (0, 1, 2, 4) if state["cycleItems"] >> m & 1)
+    items += sum(1 for i, k in enumerate(state["slots"]) if k and state["cycleItems"] >> (8 + i) & 1)
+    state["cycling"] = bool(state["cycleSec"]) and items >= 2
+    state["showMode"], state["showSlot"] = state["mode"], state["imageSlot"]
+    if clock_offset is not None:
+        local = int(time.time() + clock_offset) + tz_min * 60
+        m = local % 86400 // 60
+        state["clock"] = "%02d:%02d" % (m // 60, m % 60)
+        a, b = state["nightFrom"], state["nightTo"]
+        state["night"] = bool(state["autoDim"]) and ((a <= m < b) if a <= b else (m >= a or m < b))
 TEXT = {"labelText": 16, "text": 32}
 
 
@@ -48,6 +71,7 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def state(self):
+        refresh()
         self.reply(200, json.dumps(state))
 
     def form(self):
@@ -90,8 +114,13 @@ class Handler(BaseHTTPRequestHandler):
         url = urlparse(self.path)
         query = {k: v[0] for k, v in parse_qs(url.query).items()}
         if url.path == "/api/set":
+            global tz_min, clock_offset
             for k, v in self.form().items():
-                if k in LIMITS:
+                if k == "clock":
+                    clock_offset = int(v) - time.time()
+                elif k == "tz":
+                    tz_min = int(v)
+                elif k in LIMITS:
                     lo, hi = LIMITS[k]
                     state[k] = max(lo, min(hi, int(v)))
                 elif k == "cutoff":
@@ -132,6 +161,19 @@ class Handler(BaseHTTPRequestHandler):
             state["apSsid"] = f.get("apSsid") or "BMW-Emblem"
             state["staSsid"] = f.get("staSsid", state["staSsid"])
             self.reply(200, "Saved. Restarting...", "text/plain")
+        elif url.path == "/api/motion":
+            self.rfile.read(int(self.headers.get("Content-Length", 0)))
+            what = query.get("do")
+            if what == "upright":
+                self.reply(200, "Got it. Now turn the emblem clockwise (about a quarter turn) and tap Step 2.", "text/plain")
+            elif what == "clockwise":
+                state["levelSet"] = True
+                self.reply(200, "Motion sensor set up. Once it's fitted, park on level ground and tap Level now.", "text/plain")
+            elif what == "level" and state["levelSet"]:
+                state["angle"] = 3
+                self.reply(200, "Levelled: design turned 3 degrees", "text/plain")
+            else:
+                self.reply(400, "Set up the motion sensor first (steps 1 and 2)", "text/plain")
         elif url.path == "/api/panel":
             state["panel"] = int(self.form().get("panel", 0))
             self.reply(200, "Restarting...", "text/plain")

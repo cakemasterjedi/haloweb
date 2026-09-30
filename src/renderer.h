@@ -38,6 +38,10 @@ public:
     Rect render(uint32_t ms);
     const uint16_t *frame() const { return frame_; }
 
+    // Speeds up the moving modes (spin, stripes) by this factor, e.g. when the
+    // car accelerates. 1 = normal.
+    void setBoost(float boost) { boost_ = boost; }
+
     // Draws a full-screen message (e.g. before shutting down) straight away.
     // The next render() goes back to the selected mode.
     Rect showMessage(const char *text, uint32_t fg);
@@ -85,6 +89,7 @@ private:
     void drawText();
     void drawImage();
     void drawIntro(float t, bool intoRoundel);
+    void rotateInto(uint16_t *dst, const uint16_t *src, float degrees);
 
     Settings s_;
     uint16_t *frame_ = nullptr;
@@ -102,6 +107,7 @@ private:
     uint32_t lastMs_ = 0;
     uint32_t introStart_ = 0;
     float phase_ = 0;  // radians (spin) or pixels (stripes)
+    float boost_ = 1;
     uint16_t divider_ = 0;  // lines between the quarters
     LabelLayout label_;
 };

@@ -51,6 +51,26 @@ int main(int argc, char **argv) {
         save(r, dir + "/intro_" + std::to_string(f) + ".ppm");
     }
 
+    // Rotation (auto-level) applies to pictures and text too.
+    uint16_t *img = r.imageBuffer();
+    for (int y = 0; y < Renderer::H; y++) {
+        for (int x = 0; x < Renderer::W; x++) {
+            const bool bar = (x / 40 + y / 40) % 2 == 0;
+            img[y * Renderer::W + x] = y < 60 ? 0xF800 : (bar ? 0xFFFF : 0x001F);
+        }
+    }
+    r.imageChanged(true);
+    s.angle = 20;
+    s.mode = MODE_IMAGE;
+    r.apply(s);
+    r.render(20000);
+    save(r, dir + "/image_rotated.ppm");
+    s.mode = MODE_TEXT;
+    r.apply(s);
+    r.render(20100);
+    save(r, dir + "/text_rotated.ppm");
+    s.angle = 0;
+
     r.showMessage("LOW|BATTERY", 0xE22718);
     save(r, dir + "/message.ppm");
     return 0;

@@ -1,4 +1,5 @@
 #pragma once
+#include <stddef.h>
 #include <stdint.h>
 #include <string.h>
 
@@ -26,7 +27,7 @@ enum VoltSource : uint8_t {
 };
 
 static const uint8_t IMAGE_SLOTS = 10;
-static const uint32_t SETTINGS_VERSION = 6;
+static const uint32_t SETTINGS_VERSION = 7;
 static const uint32_t CLASSIC_BLUE = 0x2C8BD6;  // default quarter colour
 
 struct Settings {
@@ -73,7 +74,26 @@ struct Settings {
     char apPass[65];
     char staSsid[33];
     char staPass[65];
+
+    // Version 7. Added at the end so version 5/6 settings load as a prefix.
+    uint32_t cycleItems;      // auto-cycle: bit m = mode m (not MODE_IMAGE), bit 8+n = picture slot n
+    uint16_t cycleSec;        // seconds per design, 0 = off
+    uint16_t animSpeed;       // uploaded animations, % of normal speed (25..300)
+    uint8_t bootSlot;         // start-up: 0 = built-in animation, n = picture slot n-1
+    uint8_t fades;            // crossfade between designs
+    uint8_t autoDim;          // dim at night by the clock
+    uint8_t nightBrightness;  // %
+    uint16_t nightFrom;       // night starts, minutes after midnight (local)
+    uint16_t nightTo;         // night ends
+    int16_t tzMin;            // local time offset from UTC in minutes (from the phone)
+    uint8_t motionReact;      // 0..100: how much acceleration speeds up the effects
+    uint8_t doubleTap;        // double-tap the badge for the next design: 0 off, 1..3 sensitivity
+    int16_t levelRef;         // motion sensor: tilt reading when upright, 0.1 degrees
+    int8_t levelSign;         // motion sensor: +1/-1 turning direction, 0 = not set up
 };
+
+// Size of the stored settings before version 7.
+static const size_t SETTINGS_V6_SIZE = offsetof(Settings, cycleItems);
 
 inline void settingsDefaults(Settings &s) {
     memset(&s, 0, sizeof(s));
@@ -111,6 +131,21 @@ inline void settingsDefaults(Settings &s) {
     s.cutoffCV = 1200;  // 12.00 V (car battery via INA219)
     s.voltSource = VOLT_NONE;
     s.voltCal = 1000;
+
+    s.cycleItems = (1u << MODE_ROUNDEL) | (1u << MODE_SPIN);
+    s.cycleSec = 0;
+    s.animSpeed = 100;
+    s.bootSlot = 0;
+    s.fades = 1;
+    s.autoDim = 0;
+    s.nightBrightness = 35;
+    s.nightFrom = 19 * 60;
+    s.nightTo = 7 * 60;
+    s.tzMin = 0;
+    s.motionReact = 0;
+    s.doubleTap = 0;
+    s.levelRef = 0;
+    s.levelSign = 0;
 
     strcpy(s.apSsid, "BMW-Emblem");
     strcpy(s.apPass, "emblem123");
