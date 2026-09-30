@@ -837,6 +837,46 @@ async function decoderSource(file) {
   };
 }
 
+// Moves a paused video to time t and waits until that frame is actually on
+// the video element. Phones (Chrome on Android especially) fire "seeked"
+// before the decoder has delivered the new frame, so grabbing it straight
+// away gives an older frame or a half-decoded one (blocky smears). The frame
+// callback fires once the new frame is there; if the frame doesn't change
+// (same frame as before) it never comes, so don't wait long for it.
+function seekVideo(v, t) {
+  return new Promise((resolve) => {
+    const hasCallback = 'requestVideoFrameCallback' in v;
+    let seeked = false, framed = !hasCallback, finished = false, wait = null;
+    const finish = () => {
+      if (finished) return;
+      finished = true;
+      clearTimeout(wait);
+      clearTimeout(giveUp);
+      // One more frame's time so the picture is fully settled.
+      setTimeout(resolve, hasCallback ? 0 : 60);
+    };
+    const giveUp = setTimeout(finish, 3000);
+    v.addEventListener('seeked', () => {
+      seeked = true;
+      if (framed) finish();
+      else wait = setTimeout(finish, 350);
+    }, {once: true});
+    // Only count a frame from around the new time (not one still arriving
+    // from before the seek).
+    const onFrame = (now, meta) => {
+      if (finished) return;
+      if (Math.abs(meta.mediaTime - t) > 0.25) {
+        v.requestVideoFrameCallback(onFrame);
+        return;
+      }
+      framed = true;
+      if (seeked) finish();
+    };
+    if (hasCallback) v.requestVideoFrameCallback(onFrame);
+    v.currentTime = t;
+  });
+}
+
 function videoSource(file) {
   return new Promise((resolve, reject) => {
     const v = document.createElement('video');
@@ -851,7 +891,7 @@ function videoSource(file) {
         async frame(i) {
           const fps = +$('fps').value;
           v.pause();
-          await new Promise((ok) => { v.onseeked = ok; v.currentTime = Math.min(this.duration - 0.01, (i + 0.5) / fps); });
+          await seekVideo(v, Math.min(this.duration - 0.01, (i + 0.5) / fps));
           return {image: v, delay: 1000 / fps};
         },
         close() { v.pause(); URL.revokeObjectURL(v.src); },
@@ -1109,6 +1149,10 @@ function setupPictures() {
     thumb.width = thumb.height = 96;
     $('upload').disabled = true;
     crop.preview = null;  // pause the preview while encoding
+    if (src.kind === 'video') {
+      src.video.pause();
+      await sleep(100);  // let a frame that was on its way from playback arrive first
+    }
     try {
       Object.assign(st, await api('/api/state'));  // current free space
       const form = new FormData();
