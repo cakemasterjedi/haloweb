@@ -130,6 +130,11 @@
   .picks button img { width: 28px; height: 28px; border-radius: 50%; object-fit: cover; margin-left: -6px; }
   .picks button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
   .row input[type=time] { flex: 0 0 auto; width: auto; color-scheme: dark; }
+  .md { display: flex; gap: 6px; flex: 1.2; min-width: 0; }
+  .md select { flex: 1; min-width: 0; }
+  .rule { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+  .rule b { color: var(--ok); font-weight: 600; }
+  .rule button { min-height: 36px; padding: 4px 12px; }
   .steps { margin: 6px 0 0; padding-left: 20px; color: var(--muted); font-size: 13.5px; }
   .steps li { margin: 3px 0; }
   .mini { width: 18px; height: 18px; border-radius: 50%; border: 1px solid rgba(255,255,255,.15); }
@@ -227,6 +232,17 @@
         <p class="hint" style="margin:4px 0 10px">Designs to include (pick at least two):</p>
         <div class="picks" id="cyclePicks"></div>
       </div>
+    </div>
+
+    <div class="card">
+      <h2>Special dates</h2>
+      <p class="hint" style="margin-top:0">Show a design on certain days every year. On those days it replaces the normal design and auto-cycle.</p>
+      <div id="ruleList"></div>
+      <div class="chips" id="rulePresets" style="margin-top:12px"></div>
+      <div class="row"><label>From</label><div class="md"><select id="rfD"></select><select id="rfM"></select></div></div>
+      <div class="row"><label>Until</label><div class="md"><select id="rtD"></select><select id="rtM"></select></div></div>
+      <div class="row"><label for="rDesign">Design</label><select id="rDesign"></select></div>
+      <button class="primary wide" style="margin-top:12px" id="ruleAdd">Add date</button>
     </div>
 
     <div class="card" id="motionCard">
@@ -424,6 +440,17 @@
         <p class="hint" style="margin-top:0">Spin, Stripes and animations speed up when you accelerate or brake. 0 = off.</p>
         <div class="row"><label for="doubleTap">Double-tap to change design<span class="sub" id="joltInfo"></span></label>
           <select id="doubleTap"><option value="0">Off</option><option value="1">Firm taps</option><option value="2">Normal</option><option value="3">Light taps</option></select></div>
+        <h2 style="margin-top:14px">Welcome</h2>
+        <div class="row"><label for="welcomeOn">Welcome animation<span class="sub">Plays on a jolt (a door or the boot shutting) after the car has been still for 5 minutes</span></label>
+          <label class="switch"><input type="checkbox" id="welcomeOn"><span></span></label></div>
+        <div id="welcomeOpts">
+          <div class="row"><label for="welcomeSlot">Play</label><select id="welcomeSlot"></select></div>
+          <div class="row"><label for="welcomeSens">Jolt needed<span class="sub">Shut a door and compare with "last jolt" above</span></label>
+            <select id="welcomeSens"><option value="1">Firm (0.5 g)</option><option value="2">Normal (0.25 g)</option><option value="3">Light (0.12 g)</option></select></div>
+        </div>
+        <div class="row"><label for="restMin">Screen off when parked<span class="sub">After this long still. A jolt (with the welcome, if on) or opening this page wakes it</span></label>
+          <select id="restMin"><option value="0">Never</option><option value="2">2 min</option><option value="5">5 min</option><option value="10">10 min</option>
+            <option value="15">15 min</option><option value="30">30 min</option><option value="60">1 hour</option></select></div>
         <h2 style="margin-top:14px">Level</h2>
         <ol class="steps">
           <li>Before fitting: hold the emblem still with the picture upright and tap <b>Step 1</b>.</li>
@@ -592,7 +619,7 @@ async function poll() {
   }
   setTimeout(poll, tab === 'settings' && st && st.imu ? 1500 : tab === 'power' || (st && st.cycling) ? 3000 : 10000);
 }
-const LIVE_KEYS = ['volts', 'offIn', 'lowFor', 'slots', 'staIp', 'clock', 'night', 'showMode', 'showSlot', 'cycling', 'jolt', 'moving', 'boost', 'levelSet'];
+const LIVE_KEYS = ['volts', 'offIn', 'lowFor', 'slots', 'staIp', 'clock', 'night', 'showMode', 'showSlot', 'cycling', 'jolt', 'moving', 'boost', 'levelSet', 'resting', 'activeRule'];
 // Changed on the emblem itself (double-tap); taken over unless the user is changing them.
 const SELECTION_KEYS = ['mode', 'imageSlot'];
 let polledAt = Date.now();
@@ -665,6 +692,9 @@ function fillControls() {
   $('nightFrom').value = hhmm(st.nightFrom);
   $('nightTo').value = hhmm(st.nightTo);
   $('doubleTap').value = st.doubleTap;
+  $('welcomeOn').checked = !!st.welcomeOn;
+  $('welcomeSens').value = st.welcomeSens;
+  $('restMin').value = st.restMin;
   $('displayWarn').classList.toggle('hidden', st.display !== false);
   $('staSsid').value = st.staSsid;
   $('staInfo').textContent = st.staSsid
@@ -686,6 +716,7 @@ function updateUi() {
   $('cycleOpts').classList.toggle('hidden', !st.cycleSec);
   $('dimOpts').classList.toggle('hidden', !st.autoDim);
   renderCyclePicks();
+  renderRules();
   updateLive();
   $('pictureHint').textContent = `Showing slot ${st.imageSlot + 1}` +
     (st.slots && st.slots[st.imageSlot] === 2 ? ' (animation).' : st.slots && st.slots[st.imageSlot] ? '.' : ', which is empty.');
@@ -704,7 +735,7 @@ function updateUi() {
 
 // What the emblem is showing (auto-cycle may differ from the selection).
 function previewItem() {
-  return st.cycling ? {mode: st.showMode, slot: st.showSlot} : {mode: st.mode, slot: st.imageSlot};
+  return st.cycling || st.activeRule >= 0 ? {mode: st.showMode, slot: st.showSlot} : {mode: st.mode, slot: st.imageSlot};
 }
 
 const hhmm = (m) => String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0');
@@ -735,8 +766,75 @@ function updateLive() {
   }
   $('levelNow').disabled = !st.levelSet;
   const item = previewItem();
-  $('heroMode').textContent = (st.cycling ? 'Auto-cycle · ' : '') + (MODES[item.mode] ? MODES[item.mode].name : '') +
-    (item.mode === 3 ? ' ' + (item.slot + 1) : '');
+  $('heroMode').textContent = st.resting ? 'Screen off (parked)'
+    : (st.activeRule >= 0 ? 'Special date · ' : st.cycling ? 'Auto-cycle · ' : '') +
+      (MODES[item.mode] ? designName(item.mode, item.slot) : '');
+  $('welcomeOpts').classList.toggle('hidden', !st.welcomeOn);
+}
+
+// ---------------------------------------------------------------- special dates
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const DATE_PRESETS = [
+  ['Christmas', 12, 1, 12, 26], ['New Year', 12, 31, 1, 1], ['Halloween', 10, 31, 10, 31],
+  ["Valentine's", 2, 14, 2, 14], ['4th of July', 7, 4, 7, 4], ["St Patrick's", 3, 17, 3, 17],
+];
+
+function parseRules() {
+  return (st.rules || '').split(';').filter(Boolean).map((r) => r.split('.').map(Number));
+}
+
+function designName(mode, slot) {
+  return mode === 3 ? ((st.slots && st.slots[slot] === 2 ? 'Animation ' : 'Picture ') + (slot + 1)) : MODES[mode].name;
+}
+
+// The designs a date can show: the modes plus filled picture slots.
+function designOptions() {
+  const opts = [[0, 0], [1, 0], [2, 0], [4, 0]];
+  (st.slots || []).forEach((k, i) => { if (k) opts.push([3, i]); });
+  return opts;
+}
+
+function renderRules() {
+  const rules = parseRules();
+  $('ruleList').innerHTML = '';
+  rules.forEach(([fm, fd, tm, td, mode, slot], i) => {
+    const row = document.createElement('div');
+    row.className = 'rule';
+    const range = fm === tm && fd === td ? `${fd} ${MONTHS[fm - 1]}` : `${fd} ${MONTHS[fm - 1]} – ${td} ${MONTHS[tm - 1]}`;
+    row.innerHTML = `<span>${range} · ${designName(mode, slot)}${st.activeRule === i ? ' <b>· today</b>' : ''}</span>`;
+    const del = document.createElement('button');
+    del.textContent = 'Remove';
+    del.onclick = () => send({rules: rules.filter((_, k) => k !== i).map((r) => r.join('.')).join(';')});
+    row.appendChild(del);
+    $('ruleList').appendChild(row);
+  });
+  const cur = $('rDesign').value;
+  $('rDesign').innerHTML = designOptions().map(([m, sl]) => `<option value="${m}.${sl}">${designName(m, sl)}</option>`).join('');
+  if ([...$('rDesign').options].some((o) => o.value === cur)) $('rDesign').value = cur;
+  $('ruleAdd').disabled = rules.length >= 8;
+}
+
+function setupRules() {
+  const days = Array.from({length: 31}, (_, i) => `<option value="${i + 1}">${i + 1}</option>`).join('');
+  const months = MONTHS.map((m, i) => `<option value="${i + 1}">${m}</option>`).join('');
+  for (const id of ['rfD', 'rtD']) $(id).innerHTML = days;
+  for (const id of ['rfM', 'rtM']) $(id).innerHTML = months;
+  const today = new Date();
+  $('rfD').value = $('rtD').value = today.getDate();
+  $('rfM').value = $('rtM').value = today.getMonth() + 1;
+  for (const [name, fm, fd, tm, td] of DATE_PRESETS) {
+    const b = document.createElement('button');
+    b.textContent = name;
+    b.onclick = () => { $('rfM').value = fm; $('rfD').value = fd; $('rtM').value = tm; $('rtD').value = td; };
+    $('rulePresets').appendChild(b);
+  }
+  $('ruleAdd').onclick = () => {
+    const [mode, slot] = $('rDesign').value.split('.').map(Number);
+    const rule = [+$('rfM').value, +$('rfD').value, +$('rtM').value, +$('rtD').value, mode, slot];
+    send({rules: [...parseRules(), rule].map((r) => r.join('.')).join(';')});
+    toast('Date added');
+  };
 }
 
 // Auto-cycle choices: the modes plus every filled picture slot.
@@ -755,14 +853,21 @@ function renderCyclePicks() {
   }
 }
 
-// Start-up choices: off, the built-in animation, or a filled picture slot.
-function fillBootSel() {
-  const opts = [['off', 'Off'], ['0', 'Built-in (ring sweep)']];
+// Clip choices (start-up, welcome): the built-in animation or a filled picture slot.
+function clipOptions(current, withOff) {
+  const opts = withOff ? [['off', 'Off']] : [];
+  opts.push(['0', 'Built-in (ring sweep)']);
   (st.slots || []).forEach((k, i) => {
-    if (k || st.bootSlot === i + 1) opts.push([String(i + 1), (k === 2 ? 'Animation ' : k ? 'Picture ' : 'Slot ') + (i + 1)]);
+    if (k || current === i + 1) opts.push([String(i + 1), (k === 2 ? 'Animation ' : k ? 'Picture ' : 'Slot ') + (i + 1)]);
   });
-  $('bootSel').innerHTML = opts.map(([v, n]) => `<option value="${v}">${n}</option>`).join('');
+  return opts.map(([v, n]) => `<option value="${v}">${n}</option>`).join('');
+}
+
+function fillBootSel() {
+  $('bootSel').innerHTML = clipOptions(st.bootSlot, true);
   $('bootSel').value = st.startupAnim ? String(st.bootSlot) : 'off';
+  $('welcomeSlot').innerHTML = clipOptions(st.welcomeSlot, false);
+  $('welcomeSlot').value = String(st.welcomeSlot);
 }
 
 async function motionAction(what) {
@@ -892,6 +997,10 @@ function setupSystem() {
   };
   $('fades').onchange = (e) => send({fades: e.target.checked ? 1 : 0});
   $('doubleTap').onchange = (e) => send({doubleTap: +e.target.value});
+  $('welcomeOn').onchange = (e) => send({welcomeOn: e.target.checked ? 1 : 0});
+  $('welcomeSlot').onchange = (e) => send({welcomeSlot: +e.target.value});
+  $('welcomeSens').onchange = (e) => send({welcomeSens: +e.target.value});
+  $('restMin').onchange = (e) => send({restMin: +e.target.value});
   $('lvl1').onclick = () => motionAction('upright');
   $('lvl2').onclick = () => motionAction('clockwise');
   $('levelNow').onclick = () => motionAction('level');
@@ -958,8 +1067,9 @@ function renderSlots() {
     el.appendChild(b);
   }
   // Lists that depend on which slots are filled.
-  if ($('bootSel') !== document.activeElement) fillBootSel();
+  if ($('bootSel') !== document.activeElement && $('welcomeSlot') !== document.activeElement) fillBootSel();
   renderCyclePicks();
+  renderRules();
   if (st.fsTotalKB) {
     const mb = (kb) => (kb / 1024).toFixed(kb < 10240 ? 1 : 0);
     const where = st.storage === 'sd' ? 'Micro SD card' : 'Internal storage';
@@ -2296,6 +2406,7 @@ function frame(ts) {
 }
 
 buildControls();
+setupRules();
 setupPictures();
 setupPower();
 setupSystem();

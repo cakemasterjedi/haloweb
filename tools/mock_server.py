@@ -35,6 +35,8 @@ state = {
     "bootSlot": 0, "fades": 1, "autoDim": 0, "nightBrightness": 35, "nightFrom": 19 * 60, "nightTo": 7 * 60,
     "night": False, "rtc": True, "clock": None, "imu": True, "motionReact": 0, "doubleTap": 0,
     "levelSet": False, "moving": False, "jolt": 0.03, "boost": 0.0,
+    "welcomeOn": 0, "welcomeSlot": 0, "welcomeSens": 2, "restMin": 0, "resting": False,
+    "rules": "", "activeRule": -1,
 }
 tz_min = 0
 clock_offset = None  # phone time - server time, once set
@@ -43,7 +45,8 @@ LIMITS = {"mode": (0, 4), "brightness": (5, 100), "speed": (-100, 100), "imageSl
           "autoOffMin": (0, 720), "showHours": (0, 48), "showBrightness": (5, 100), "lowVoltOn": (0, 1),
           "voltSource": (0, 2), "cycleItems": (0, 0x3FFFF), "cycleSec": (0, 3600), "animSpeed": (25, 300),
           "bootSlot": (0, 10), "fades": (0, 1), "autoDim": (0, 1), "nightBrightness": (5, 100),
-          "nightFrom": (0, 1439), "nightTo": (0, 1439), "motionReact": (0, 100), "doubleTap": (0, 3)}
+          "nightFrom": (0, 1439), "nightTo": (0, 1439), "motionReact": (0, 100), "doubleTap": (0, 3),
+          "welcomeOn": (0, 1), "welcomeSlot": (0, 10), "welcomeSens": (1, 3), "restMin": (0, 240)}
 
 
 def refresh():
@@ -52,6 +55,17 @@ def refresh():
     items += sum(1 for i, k in enumerate(state["slots"]) if k and state["cycleItems"] >> (8 + i) & 1)
     state["cycling"] = bool(state["cycleSec"]) and items >= 2
     state["showMode"], state["showSlot"] = state["mode"], state["imageSlot"]
+    state["activeRule"] = -1
+    if clock_offset is not None:
+        t = time.gmtime(time.time() + clock_offset + tz_min * 60)
+        md = t.tm_mon * 100 + t.tm_mday
+        for i, r in enumerate(x for x in state["rules"].split(";") if x):
+            fm, fd, tm, td, mode, slot = map(int, r.split("."))
+            a, b = fm * 100 + fd, tm * 100 + td
+            if (a <= md <= b) if a <= b else (md >= a or md <= b):
+                state["activeRule"] = i
+                state["showMode"], state["showSlot"] = mode, slot
+                break
     if clock_offset is not None:
         local = int(time.time() + clock_offset) + tz_min * 60
         m = local % 86400 // 60
@@ -125,6 +139,8 @@ class Handler(BaseHTTPRequestHandler):
                     state[k] = max(lo, min(hi, int(v)))
                 elif k == "cutoff":
                     state["cutoff"] = float(v)
+                elif k == "rules":
+                    state["rules"] = v
                 elif k in TEXT:
                     state[k] = v[:TEXT[k]]
                 elif k in state and isinstance(state[k], str) and len(v) == 7 and v.startswith("#"):

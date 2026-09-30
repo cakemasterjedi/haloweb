@@ -28,6 +28,9 @@ mounted at an angle). Settings are saved on the board.
 - **Smooth transitions:** designs crossfade into each other (Settings).
 - **Animation speed:** 25–300 % for uploaded animations (Emblem tab, shown when
   an animation is selected).
+- **Special dates** (Emblem tab): a design for certain days every year, e.g.
+  1–26 Dec → your Christmas animation (up to 8 dates, presets for common
+  holidays). On those days it replaces the normal design and auto-cycle.
 - **Start-up** (Settings): the built-in animation (the ring sweeps in, the
   quarters spin into place, a glint crosses the badge), any picture or
   animation slot, or off. Then your selected design takes over.
@@ -68,6 +71,13 @@ The board has a motion sensor (QMI8658), used for:
 - **Double-tap to change design:** tap the badge twice for the next design
   (the next auto-cycle design, or the next mode / picture). Ignored while
   driving. The page shows the last jolt so you can pick the sensitivity.
+- **Welcome animation:** when the car has been still for 5 minutes, the next
+  jolt (a door or the boot shutting) plays a welcome clip: the built-in
+  animation or any picture/animation slot. Pick how big a jolt it needs.
+- **Screen off when parked:** after the car has been still for a set time the
+  screen goes dark; a jolt wakes it (with the welcome, if on), as does opening
+  the page. The board stays on, so use the auto-off timer or battery
+  protection for longer stops.
 - **Level:** a one-time set-up on the bench (hold it upright → Step 1, turn it
   a quarter turn clockwise → Step 2) teaches it which way is up. Once fitted,
   park on level ground and tap *Level now*; it sets the rotation for you.

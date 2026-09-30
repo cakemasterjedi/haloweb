@@ -21,6 +21,14 @@ bool motionMoving();
 // Biggest recent jolt (sample-to-sample change, g), to tune tap sensitivity.
 float motionPeakJolt();
 
+// Jolts (e.g. a door or boot closing) above the threshold, in g.
+uint32_t motionJolts();
+void motionSetJoltThreshold(float g);
+// How long the car had been still before the last jolt, ms.
+uint32_t motionQuietBeforeJolt();
+// How long it has been still now, ms.
+uint32_t motionQuietMs();
+
 // Number of double-taps on the badge so far. Taps are ignored while driving.
 // sensitivity: 1 low .. 3 high (0 = don't detect).
 uint32_t motionDoubleTaps();

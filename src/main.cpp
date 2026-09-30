@@ -65,8 +65,17 @@ struct Item {
     uint8_t mode, slot;
 };
 static Item shown = {0xFF, 0};
-static bool bootPlaying = false;   // start-up clip from a picture slot
-static uint32_t bootStart = 0;
+static bool clipPlaying = false;   // start-up / welcome clip from a picture slot
+static uint8_t clipSlot = 0;
+static uint32_t clipStart = 0;
+static bool resting = false;       // screen off while parked; a jolt wakes it
+static int activeRule = -1;        // date-based design in force, -1 = none
+static uint32_t welcomeAt = 0;     // welcome pending (waits to rule out a double-tap)
+static uint32_t welcomeTaps = 0;
+static const uint32_t WELCOME_QUIET_MS = 300000;  // still this long before a jolt means "welcome"
+static void restTick(uint32_t now);
+static void wake(bool welcome);
+static void checkDateRule();
 static bool cycleOn = false;       // auto-cycle has at least two designs
 static bool cycleOverride = false; // showing cycleItem rather than the selection
 static Item cycleItem = {0, 0};
@@ -140,7 +149,7 @@ static void applyBrightness() {
 
 static void rampBrightness() {
     if (!displayOk || brightNow < 0) return;
-    const float target = constrain(effectiveBrightness(), 5, 100);
+    const float target = resting ? 0 : constrain(effectiveBrightness(), 5, 100);
     const float diff = target - brightNow;
     if (diff == 0) return;
     const float step = fmaxf(0.5f, fabsf(diff) * 0.08f);
@@ -444,14 +453,16 @@ static void stepAnimation(uint32_t now) {
 static void loadSettings() {
     settingsDefaults(settings);
     prefs.begin("emblem", false);
-    // Versions 5 and 6 are the first part of the current layout: the fields
-    // added since keep their defaults.
+    // Versions 5-7 are the first part of the current layout: the fields added
+    // since keep their defaults.
     Settings stored;
     settingsDefaults(stored);
     const size_t len = prefs.getBytesLength("s");
-    if ((len == sizeof(Settings) || len == SETTINGS_V6_SIZE) && prefs.getBytes("s", &stored, len) == len) {
+    if ((len == sizeof(Settings) || len == SETTINGS_V7_SIZE || len == SETTINGS_V6_SIZE) &&
+        prefs.getBytes("s", &stored, len) == len) {
         const bool current = len == sizeof(Settings) && stored.version == SETTINGS_VERSION;
-        const bool older = len == SETTINGS_V6_SIZE && (stored.version == 5 || stored.version == 6);
+        const bool older = (len == SETTINGS_V7_SIZE && stored.version == 7) ||
+                           (len == SETTINGS_V6_SIZE && (stored.version == 5 || stored.version == 6));
         if (current || older) {
             // Version 5's default blue was darker.
             if (stored.version == 5 && stored.quadA == 0x1C69D4) stored.quadA = CLASSIC_BLUE;
@@ -567,6 +578,9 @@ static void powerTick(uint32_t now) {
         logf("Night dimming %s\n", night ? "on" : "off");
         applyBrightness();
     }
+    restTick(now);
+    if (resting && motionMoving()) wake(false);
+    if (displayOk) checkDateRule();
     const bool timed = settings.powerMode == POWER_CAR_SHOW ? settings.showHours : settings.autoOffMin;
     if (timed && offInMs(now) <= 0) shutdownNow(SLEEP_OFF);
 }
@@ -657,7 +671,8 @@ static void updateCycleOn() {
 }
 
 static Item wantedItem() {
-    if (bootPlaying) return {MODE_IMAGE, uint8_t(settings.bootSlot - 1)};
+    if (clipPlaying) return {MODE_IMAGE, clipSlot};
+    if (activeRule >= 0) return {settings.rules[activeRule].mode, settings.rules[activeRule].slot};
     if (cycleOn && cycleOverride) return cycleItem;
     return {settings.mode, settings.imageSlot};
 }
@@ -717,7 +732,10 @@ static void nextItem() {
 // Auto-cycle: change design when it's time, letting an animation finish its
 // current loop first (up to a minute).
 static void cycleTick(uint32_t now) {
-    if (!cycleOn || bootPlaying || renderer.introRunning() || int32_t(now - cycleAt) < 0) return;
+    if (!cycleOn || clipPlaying || activeRule >= 0 || resting || renderer.introRunning() ||
+        int32_t(now - cycleAt) < 0) {
+        return;
+    }
     if (shown.mode == MODE_IMAGE && anim.count > 1 && now - cycleAt < 60000) {
         if (cycleWaitLoops == UINT32_MAX) cycleWaitLoops = anim.loops;
         if (anim.loops == cycleWaitLoops) return;
@@ -725,15 +743,84 @@ static void cycleTick(uint32_t now) {
     nextItem();
 }
 
-// Start-up clip: an animation plays through once, a picture shows for 3 s.
-static void bootTick(uint32_t now) {
-    if (!bootPlaying) return;
-    const uint32_t t = now - bootStart;
+// Start-up / welcome clip: 0 = the built-in animation, n = picture slot n-1
+// (an animation plays through once, a picture shows for 3 s). Empty slots
+// fall back to the built-in animation.
+static void playClip(uint8_t slot) {
+    if (!displayOk) return;
+    uint8_t slots[IMAGE_SLOTS];
+    listSlots(slots);
+    if (slot && slots[slot - 1]) {
+        clipPlaying = true;
+        clipSlot = slot - 1;
+        clipStart = millis();
+        refreshDisplay(true);
+    } else {
+        clipPlaying = false;
+        renderer.startIntro(millis());
+    }
+}
+
+static void clipTick(uint32_t now) {
+    if (!clipPlaying) return;
+    const uint32_t t = now - clipStart;
     const bool done = anim.count > 1 ? anim.loops >= 1 : t >= 3000;
     if (!done && t < 20000) return;
-    bootPlaying = false;
+    clipPlaying = false;
     cycleAt = now + settings.cycleSec * 1000u;
     refreshDisplay(true);
+}
+
+// Local date as month * 100 + day, -1 if the clock isn't set.
+static int localMonthDay() {
+    if (!clockValid()) return -1;
+    const time_t local = time(nullptr) + settings.tzMin * 60;
+    struct tm t;
+    gmtime_r(&local, &t);
+    return (t.tm_mon + 1) * 100 + t.tm_mday;
+}
+
+// First date rule that covers today, -1 if none.
+static int dateRuleNow() {
+    const int md = localMonthDay();
+    if (md < 0) return -1;
+    for (int i = 0; i < DATE_RULES; i++) {
+        const DateRule &r = settings.rules[i];
+        if (!r.fromMonth) continue;
+        const int from = r.fromMonth * 100 + r.fromDay, to = r.toMonth * 100 + r.toDay;
+        if (from <= to ? (md >= from && md <= to) : (md >= from || md <= to)) return i;
+    }
+    return -1;
+}
+
+static void checkDateRule() {
+    const int rule = dateRuleNow();
+    if (rule == activeRule) return;
+    activeRule = rule;
+    if (rule >= 0) logf("Special date: design %d\n", rule + 1);
+    refreshDisplay(true);
+}
+
+// Screen off while parked, and back on.
+static void wake(bool welcome) {
+    if (resting) {
+        resting = false;
+        logf("Waking up%s\n", welcome ? " (welcome)" : "");
+    }
+    if (welcome && settings.welcomeOn) playClip(settings.welcomeSlot);
+}
+
+static void restTick(uint32_t now) {
+    if (resting || !settings.restMin || !motionPresent() || clipPlaying || renderer.introRunning()) return;
+    const uint32_t after = settings.restMin * 60000u;
+    if (motionQuietMs() >= after && now - lastActivity >= after) {
+        resting = true;
+        logf("Parked: screen off until the next jolt\n");
+    }
+}
+
+static float joltThreshold(uint8_t sens) {
+    return sens == 1 ? 0.5f : sens == 3 ? 0.12f : 0.25f;
 }
 
 static void sendState() {
@@ -823,6 +910,20 @@ static void sendState() {
     j += ",\"motionReact\":" + String(settings.motionReact);
     j += ",\"doubleTap\":" + String(settings.doubleTap);
     j += ",\"levelSet\":" + String(settings.levelSign ? "true" : "false");
+    j += ",\"welcomeOn\":" + String(settings.welcomeOn);
+    j += ",\"welcomeSlot\":" + String(settings.welcomeSlot);
+    j += ",\"welcomeSens\":" + String(settings.welcomeSens);
+    j += ",\"restMin\":" + String(settings.restMin);
+    j += ",\"resting\":" + String(resting ? "true" : "false");
+    // Date rules as "fromMonth.fromDay.toMonth.toDay.mode.slot;..."
+    j += ",\"rules\":\"";
+    for (int i = 0, n = 0; i < DATE_RULES; i++) {
+        const DateRule &r = settings.rules[i];
+        if (!r.fromMonth) continue;
+        if (n++) j += ";";
+        j += String(r.fromMonth) + "." + r.fromDay + "." + r.toMonth + "." + r.toDay + "." + r.mode + "." + r.slot;
+    }
+    j += "\",\"activeRule\":" + String(activeRule);
     if (motionPresent()) {
         j += ",\"moving\":" + String(motionMoving() ? "true" : "false");
         j += ",\"jolt\":" + String(motionPeakJolt(), 2);
@@ -874,6 +975,9 @@ static void handleSet() {
             nightNow = night;
             applyBrightness();
         }
+        lastActivity = millis();
+        wake(false);  // opening the page wakes the screen
+        checkDateRule();
         sendState();
         return;
     }
@@ -944,6 +1048,30 @@ static void handleSet() {
     if (argInt("motionReact", 0, 100, v)) settings.motionReact = v;
     if (argInt("doubleTap", 0, 3, v)) settings.doubleTap = v;
     motionSetTapSensitivity(settings.doubleTap);
+    if (argInt("welcomeOn", 0, 1, v)) settings.welcomeOn = v;
+    if (argInt("welcomeSlot", 0, IMAGE_SLOTS, v)) settings.welcomeSlot = v;
+    if (argInt("welcomeSens", 1, 3, v)) settings.welcomeSens = v;
+    motionSetJoltThreshold(joltThreshold(settings.welcomeSens));
+    if (argInt("restMin", 0, 240, v)) settings.restMin = v;
+    if (server.hasArg("rules")) {
+        // "fromMonth.fromDay.toMonth.toDay.mode.slot;..." (empty = none)
+        memset(settings.rules, 0, sizeof(settings.rules));
+        const String list = server.arg("rules");
+        int n = 0, start = 0;
+        while (start < int(list.length()) && n < DATE_RULES) {
+            int end = list.indexOf(';', start);
+            if (end < 0) end = list.length();
+            unsigned fm, fd, tm, td, mode, slot;
+            if (sscanf(list.substring(start, end).c_str(), "%u.%u.%u.%u.%u.%u", &fm, &fd, &tm, &td, &mode, &slot) == 6 &&
+                fm >= 1 && fm <= 12 && tm >= 1 && tm <= 12 && fd >= 1 && fd <= 31 && td >= 1 && td <= 31 &&
+                mode < MODE_COUNT && slot < IMAGE_SLOTS) {
+                settings.rules[n++] = {uint8_t(fm), uint8_t(fd), uint8_t(tm), uint8_t(td), uint8_t(mode), uint8_t(slot)};
+            }
+            start = end + 1;
+        }
+        activeRule = dateRuleNow();
+    }
+    wake(false);  // using the page wakes the screen
     if (settings.powerMode != oldPower && settings.powerMode == POWER_CAR_SHOW) showStart = millis();
     lastActivity = millis();
 
@@ -1318,18 +1446,12 @@ void setup() {
     nightNow = nightTime();
     applyBrightness();
 
-    // Start-up: a picture slot's clip, or the built-in animation.
-    if (displayOk && settings.startupAnim && settings.bootSlot) {
-        uint8_t slots[IMAGE_SLOTS];
-        listSlots(slots);
-        if (slots[settings.bootSlot - 1]) {
-            bootPlaying = true;
-            bootStart = millis();
-        }
-    }
-    if (displayOk && settings.startupAnim && !bootPlaying) renderer.startIntro(millis());
+    motionSetJoltThreshold(joltThreshold(settings.welcomeSens));
     updateCycleOn();
+    activeRule = dateRuleNow();
     refreshDisplay(false);
+    // Start-up: the built-in animation or a picture slot's clip.
+    if (settings.startupAnim) playClip(settings.bootSlot);
     lastActivity = showStart = cycleAt = millis();
     cycleAt += settings.cycleSec * 1000u;
 }
@@ -1349,11 +1471,29 @@ void loop() {
         const uint32_t taps = motionDoubleTaps();
         if (taps != tapsSeen) {
             tapsSeen = taps;
-            if (settings.doubleTap && displayOk && !bootPlaying && !renderer.introRunning()) {
+            welcomeAt = 0;  // it was a double-tap, not a welcome jolt
+            if (resting) {
+                wake(true);
+            } else if (settings.doubleTap && displayOk && !clipPlaying && !renderer.introRunning()) {
                 logf("Double-tap: next design\n");
                 lastActivity = now;
                 nextItem();
             }
+        }
+        // A jolt after the car has been still (a door or the boot closing):
+        // welcome. Waits a moment in case it's the first tap of a double-tap.
+        static uint32_t joltsSeen = motionJolts();
+        const uint32_t jolts = motionJolts();
+        if (jolts != joltsSeen) {
+            joltsSeen = jolts;
+            if (resting || (settings.welcomeOn && motionQuietBeforeJolt() >= WELCOME_QUIET_MS)) {
+                welcomeAt = (now + 700) | 1;
+                welcomeTaps = motionDoubleTaps();
+            }
+        }
+        if (welcomeAt && int32_t(now - welcomeAt) >= 0) {
+            welcomeAt = 0;
+            if (motionDoubleTaps() == welcomeTaps && displayOk && !renderer.introRunning()) wake(true);
         }
     }
     renderer.setBoost(motionFactor);
@@ -1363,16 +1503,16 @@ void loop() {
         logf("Clock set from the internet\n");
     }
     if (displayOk) {
-        bootTick(now);
+        clipTick(now);
         cycleTick(now);
-        stepAnimation(now);
+        if (!resting) stepAnimation(now);
     }
     static uint32_t lastResync = 0;
     if (displayOk && now - lastResync >= 1000) {
         lastResync = now;
         resyncDisplay();
     }
-    if (displayOk && now - lastFrame >= FRAME_MS) {
+    if (displayOk && now - lastFrame >= FRAME_MS && !(resting && brightNow <= 0)) {
         lastFrame = now;
         rampBrightness();
         Rect r = renderer.render(now);

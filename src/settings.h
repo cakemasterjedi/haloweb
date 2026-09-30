@@ -27,7 +27,16 @@ enum VoltSource : uint8_t {
 };
 
 static const uint8_t IMAGE_SLOTS = 10;
-static const uint32_t SETTINGS_VERSION = 7;
+static const uint8_t DATE_RULES = 8;
+
+// A design for certain days of the year, e.g. 1 Dec - 26 Dec: picture 4.
+// The range can wrap over the new year. fromMonth 0 = unused.
+struct DateRule {
+    uint8_t fromMonth, fromDay, toMonth, toDay;
+    uint8_t mode;  // Mode
+    uint8_t slot;  // picture slot for MODE_IMAGE
+};
+static const uint32_t SETTINGS_VERSION = 8;
 static const uint32_t CLASSIC_BLUE = 0x2C8BD6;  // default quarter colour
 
 struct Settings {
@@ -90,10 +99,18 @@ struct Settings {
     uint8_t doubleTap;        // double-tap the badge for the next design: 0 off, 1..3 sensitivity
     int16_t levelRef;         // motion sensor: tilt reading when upright, 0.1 degrees
     int8_t levelSign;         // motion sensor: +1/-1 turning direction, 0 = not set up
+
+    // Version 8 (starts on a 4-byte boundary, where version 7 ended).
+    alignas(4) uint8_t welcomeOn;  // play a welcome clip on a jolt after the car has been still
+    uint8_t welcomeSlot;      // 0 = built-in animation, n = picture slot n-1
+    uint8_t welcomeSens;      // jolt sensitivity 1 (firm) .. 3 (light)
+    uint8_t restMin;          // screen off after parked this long (minutes), 0 = never
+    DateRule rules[DATE_RULES];
 };
 
-// Size of the stored settings before version 7.
+// Size of the stored settings before versions 7 and 8.
 static const size_t SETTINGS_V6_SIZE = offsetof(Settings, cycleItems);
+static const size_t SETTINGS_V7_SIZE = offsetof(Settings, welcomeOn);
 
 inline void settingsDefaults(Settings &s) {
     memset(&s, 0, sizeof(s));
@@ -146,6 +163,11 @@ inline void settingsDefaults(Settings &s) {
     s.doubleTap = 0;
     s.levelRef = 0;
     s.levelSign = 0;
+
+    s.welcomeOn = 0;
+    s.welcomeSlot = 0;
+    s.welcomeSens = 2;
+    s.restMin = 0;
 
     strcpy(s.apSsid, "BMW-Emblem");
     strcpy(s.apPass, "emblem123");

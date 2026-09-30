@@ -26,6 +26,12 @@ volatile float boost = 0;
 volatile float vibration = 0;  // RMS of the vibration, g
 volatile uint32_t doubleTaps = 0;
 volatile float peakJolt = 0;  // biggest recent jolt, g (fades over ~2 s)
+volatile uint32_t jolts = 0;
+volatile float joltThreshold = 0.25f;
+volatile uint32_t lastMovement = 0;  // millis() of the last movement
+volatile uint32_t quietBeforeJolt = 0;
+uint32_t burstQuiet = 0, burstStart = 0, lastJolt = 0;
+const float MOVEMENT_G = 0.06f;      // smaller jolts don't count as movement
 volatile uint8_t tapSensitivity = 0;
 
 bool writeReg(uint8_t reg, uint8_t val) {
@@ -92,6 +98,22 @@ void task(void *) {
         const float pk = peakJolt * (1 - DT / 2.0f);
         peakJolt = jerk > pk ? jerk : pk;
 
+        // Jolts, and how long the car had been still before the burst of
+        // movement they belong to (opening a door moves it a little before
+        // the door shuts).
+        const uint32_t nowMs = millis();
+        const bool moved = jerk > MOVEMENT_G || vibration > 0.06f;
+        if (moved && nowMs - lastMovement > 5000) {
+            burstQuiet = nowMs - lastMovement;
+            burstStart = nowMs;
+        }
+        if (jerk > joltThreshold && nowMs - lastJolt > 300) {  // not the ringing of the previous one
+            quietBeforeJolt = nowMs - burstStart < 30000 ? burstQuiet : 0;
+            jolts = jolts + 1;
+            lastJolt = nowMs;
+        }
+        if (moved) lastMovement = nowMs;
+
         // Double-tap: two sharp spikes 0.1-0.6 s apart while otherwise still.
         const uint8_t sens = tapSensitivity;
         if (sens) {
@@ -140,6 +162,10 @@ float motionTiltDeg() { return tiltDeg; }
 float motionBoost() { return boost; }
 bool motionMoving() { return vibration > 0.06f; }
 float motionPeakJolt() { return peakJolt; }
+uint32_t motionJolts() { return jolts; }
+void motionSetJoltThreshold(float g) { joltThreshold = g; }
+uint32_t motionQuietBeforeJolt() { return quietBeforeJolt; }
+uint32_t motionQuietMs() { return addr ? millis() - lastMovement : 0; }
 uint32_t motionDoubleTaps() { return doubleTaps; }
 void motionSetTapSensitivity(uint8_t sensitivity) { tapSensitivity = sensitivity; }
 #endif  // EMBLEM_DIAG
