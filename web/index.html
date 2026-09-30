@@ -223,7 +223,7 @@
         <div class="swatch"><input type="color" id="quadA">Quarter A</div>
         <div class="swatch"><input type="color" id="quadB">Quarter B</div>
         <div class="swatch"><input type="color" id="ring">Ring</div>
-        <div class="swatch"><input type="color" id="rim">Chrome</div>
+        <div class="swatch"><input type="color" id="rim">Rims</div>
         <div class="swatch"><input type="color" id="label">Letters</div>
       </div>
       <div class="row" style="margin-top:8px"><label for="labelText">Letters</label><input type="text" id="labelText" maxlength="16" autocapitalize="characters" spellcheck="false"></div>
@@ -369,7 +369,7 @@
   <section class="tab hidden" data-tab="settings">
     <div class="card">
       <h2>Display</h2>
-      <div class="row"><label for="startupAnim">Start-up animation<span class="sub">Chrome ring, spin-in and glint at power-on</span></label>
+      <div class="row"><label for="startupAnim">Start-up animation<span class="sub">Ring sweep, spin-in and glint at power-on</span></label>
         <label class="switch"><input type="checkbox" id="startupAnim"><span></span></label></div>
       <div class="row"><label for="panel">Panel timing</label><select id="panel"></select></div>
       <div class="split">
@@ -815,7 +815,203 @@ function stillSource(file) {
   });
 }
 
-// GIF, animated WebP/PNG via the browser's ImageDecoder (Chrome / Android).
+// GIF decoder, so GIF animations work in every browser (Firefox and Safari
+// don't have ImageDecoder). parseGif() indexes the frames; frames are
+// decoded one at a time and composited the way browsers show them.
+function parseGif(buf) {
+  const b = new Uint8Array(buf);
+  const sig = String.fromCharCode(...b.subarray(0, 6));
+  if (sig !== 'GIF87a' && sig !== 'GIF89a') throw new Error('Not a GIF');
+  const width = b[6] | (b[7] << 8), height = b[8] | (b[9] << 8);
+  let p = 13;
+  let globalTable = null;
+  if (b[10] & 0x80) {
+    const n = 3 << ((b[10] & 7) + 1);
+    globalTable = b.subarray(p, p + n);
+    p += n;
+  }
+  const frames = [];
+  let gce = {delay: 0, disposal: 0, transparent: -1};
+  const skipBlocks = () => {
+    while (p < b.length && b[p]) p += b[p] + 1;
+    p++;
+  };
+  while (p < b.length) {
+    const t = b[p++];
+    if (t === 0x3B) break;  // trailer
+    if (t === 0x21) {  // extension
+      const label = b[p++];
+      if (label === 0xF9 && b[p] >= 4) {
+        const flags = b[p + 1];
+        gce = {
+          delay: (b[p + 2] | (b[p + 3] << 8)) * 10,
+          disposal: (flags >> 2) & 7,
+          transparent: flags & 1 ? b[p + 4] : -1,
+        };
+      }
+      skipBlocks();
+    } else if (t === 0x2C) {  // image
+      const f = {
+        x: b[p] | (b[p + 1] << 8), y: b[p + 2] | (b[p + 3] << 8),
+        w: b[p + 4] | (b[p + 5] << 8), h: b[p + 6] | (b[p + 7] << 8),
+        interlaced: !!(b[p + 8] & 0x40), table: globalTable, ...gce,
+      };
+      const flags = b[p + 8];
+      p += 9;
+      if (flags & 0x80) {
+        const n = 3 << ((flags & 7) + 1);
+        f.table = b.subarray(p, p + n);
+        p += n;
+      }
+      f.minCode = b[p++];
+      f.data = p;
+      skipBlocks();
+      if (f.table && f.w && f.h) frames.push(f);
+      gce = {delay: 0, disposal: 0, transparent: -1};
+      if (frames.length >= MAX_FRAMES) break;
+    } else {
+      break;  // unknown block: stop here and keep what we have
+    }
+  }
+  if (!frames.length) throw new Error('Empty GIF');
+  return {bytes: b, width, height, frames};
+}
+
+// LZW-decodes one frame's pixels into colour indices.
+function gifIndices(gif, f) {
+  const b = gif.bytes;
+  const n = f.w * f.h;
+  const out = new Uint8Array(n);
+  const prefix = new Uint16Array(4096), suffix = new Uint8Array(4096), stack = new Uint8Array(4097);
+  const clear = 1 << f.minCode, eoi = clear + 1;
+  let size = f.minCode + 1, mask = (1 << size) - 1, next = eoi + 1, old = -1, first = 0;
+  let bits = 0, datum = 0, o = 0;
+  let p = f.data, blockEnd = p;
+  for (let i = 0; i < clear; i++) suffix[i] = i;
+  outer:
+  while (o < n) {
+    while (bits < size) {
+      if (p >= blockEnd) {
+        const len = b[p++];
+        if (!len || p >= b.length) break outer;
+        blockEnd = p + len;
+      }
+      datum |= b[p++] << bits;
+      bits += 8;
+    }
+    let code = datum & mask;
+    datum >>= size;
+    bits -= size;
+    if (code === clear) {
+      size = f.minCode + 1;
+      mask = (1 << size) - 1;
+      next = eoi + 1;
+      old = -1;
+      continue;
+    }
+    if (code === eoi) break;
+    if (old === -1) {
+      out[o++] = suffix[code];
+      old = first = code;
+      continue;
+    }
+    const inCode = code;
+    let sp = 0;
+    if (code >= next) {  // the KwKwK case
+      stack[sp++] = first;
+      code = old;
+    }
+    while (code >= clear) {
+      stack[sp++] = suffix[code];
+      code = prefix[code];
+    }
+    first = suffix[code];
+    stack[sp++] = first;
+    while (sp && o < n) out[o++] = stack[--sp];
+    if (next < 4096) {
+      prefix[next] = old;
+      suffix[next] = first;
+      next++;
+      if ((next & mask) === 0 && next < 4096) {
+        size++;
+        mask = (1 << size) - 1;
+      }
+    }
+    old = inCode;
+  }
+  if (!f.interlaced) return out;
+  const rows = new Uint8Array(n);
+  let src = 0;
+  for (const [start, step] of [[0, 8], [4, 8], [2, 4], [1, 2]]) {
+    for (let y = start; y < f.h; y += step) {
+      rows.set(out.subarray(src, src + f.w), y * f.w);
+      src += f.w;
+    }
+  }
+  return rows;
+}
+
+async function gifSource(file) {
+  const gif = parseGif(await file.arrayBuffer());
+  const {width, height, frames} = gif;
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d');
+  let pixels = ctx.createImageData(width, height);
+  let shown = -1;       // frame currently in pixels
+  let restore = null;   // copy for "restore to previous"
+  const reset = () => {
+    pixels = ctx.createImageData(width, height);
+    shown = -1;
+    restore = null;
+  };
+  const step = () => {
+    // Undo the previous frame as its disposal method asks.
+    if (shown >= 0) {
+      const pf = frames[shown];
+      if (pf.disposal === 2) {
+        for (let y = pf.y; y < Math.min(height, pf.y + pf.h); y++) {
+          pixels.data.fill(0, (y * width + pf.x) * 4, (y * width + Math.min(width, pf.x + pf.w)) * 4);
+        }
+      } else if (pf.disposal === 3 && restore) {
+        pixels.data.set(restore);
+      }
+    }
+    const f = frames[++shown];
+    restore = f.disposal === 3 ? pixels.data.slice() : null;
+    const idx = gifIndices(gif, f);
+    const d = pixels.data, t = f.table, colours = t.length / 3;
+    for (let y = 0; y < f.h; y++) {
+      const sy = f.y + y;
+      if (sy >= height) break;
+      for (let x = 0; x < f.w; x++) {
+        const sx = f.x + x;
+        if (sx >= width) break;
+        const c = idx[y * f.w + x];
+        if (c === f.transparent || c >= colours) continue;
+        const o = (sy * width + sx) * 4;
+        d[o] = t[c * 3];
+        d[o + 1] = t[c * 3 + 1];
+        d[o + 2] = t[c * 3 + 2];
+        d[o + 3] = 255;
+      }
+    }
+  };
+  return {
+    kind: frames.length > 1 ? 'animation' : 'photo', width, height, count: frames.length,
+    async frame(i) {
+      if (i < shown) reset();
+      while (shown < i) step();
+      ctx.putImageData(pixels, 0, 0);
+      const delay = frames[i].delay;
+      return {image: canvas, delay: delay > 10 ? delay : 100};  // browsers treat 0-10 ms as 100 ms
+    },
+    close() {},
+  };
+}
+
+// Animated WebP/PNG/AVIF via the browser's ImageDecoder (Chrome, newer Firefox).
 async function decoderSource(file) {
   const dec = new ImageDecoder({data: await file.arrayBuffer(), type: file.type});
   await dec.tracks.ready;
@@ -838,7 +1034,7 @@ async function decoderSource(file) {
 }
 
 // Moves a paused video to time t and waits until that frame is actually on
-// the video element. Phones (Chrome on Android especially) fire "seeked"
+// the video element. Some browsers (Chrome on Android especially) fire "seeked"
 // before the decoder has delivered the new frame, so grabbing it straight
 // away gives an older frame or a half-decoded one (blocky smears). The frame
 // callback fires once the new frame is there; if the frame doesn't change
@@ -883,7 +1079,30 @@ function videoSource(file) {
     v.muted = true;
     v.playsInline = true;
     v.preload = 'auto';
+    let settled = false;
+    const fail = (msg) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(nudge);
+      clearTimeout(timeout);
+      URL.revokeObjectURL(v.src);
+      reject(new Error(msg));
+    };
+    // Most phone cameras record HEVC (H.265) by default, which Firefox can't
+    // play on most phones.
+    const unsupported = "This browser can't play this video. Phone cameras often record HEVC (H.265): " +
+      "turn off \"High efficiency video\" (Samsung) or choose \"Most compatible\" (iPhone) in the camera " +
+      'settings, or convert it to a normal MP4 (H.264) or WebM.';
     v.onloadeddata = () => {
+      if (settled) return;
+      if (!v.videoWidth || !v.videoHeight || !isFinite(v.duration)) {
+        fail(unsupported);
+        return;
+      }
+      settled = true;
+      clearTimeout(nudge);
+      clearTimeout(timeout);
+      v.pause();
       const src = {
         kind: 'video', video: v, width: v.videoWidth, height: v.videoHeight,
         duration: v.duration,
@@ -898,23 +1117,29 @@ function videoSource(file) {
       };
       resolve(src);
     };
-    v.onerror = () => reject(new Error("This video format can't be read here (try MP4)"));
+    v.onerror = () => fail(unsupported);
+    // Some mobile browsers (Firefox on Android) don't load a video until it
+    // has been played, so give it a nudge if nothing has arrived yet.
+    const nudge = setTimeout(() => v.play().then(() => { if (!settled) v.pause(); }).catch(() => {}), 1500);
+    const timeout = setTimeout(() => fail(unsupported), 15000);
     v.src = URL.createObjectURL(file);
+    v.load();
   });
 }
 
 async function loadSource(file) {
   if (file.type.startsWith('video/')) return videoSource(file);
-  if (/gif|webp|png|avif/.test(file.type)) {
-    if ('ImageDecoder' in window) {
-      try {
-        const s = await decoderSource(file);
-        if (s.count > 1) return s;
-        s.close();
-      } catch (e) { /* fall back to a still */ }
-    } else if (file.type === 'image/gif') {
-      toast("This browser can't read GIF animations - using the first frame. Try Chrome, or send a video.", 5000);
-    }
+  if (file.type === 'image/gif') {
+    try {
+      const s = await gifSource(file);
+      if (s.count > 1) return s;
+    } catch (e) { /* fall back to a still */ }
+  } else if (/webp|png|avif/.test(file.type) && 'ImageDecoder' in window) {
+    try {
+      const s = await decoderSource(file);
+      if (s.count > 1) return s;
+      s.close();
+    } catch (e) { /* fall back to a still */ }
   }
   return stillSource(file);
 }
