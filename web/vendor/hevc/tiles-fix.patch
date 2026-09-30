@@ -1,0 +1,27 @@
+diff --git a/src/decoding/coding_tree.cpp b/src/decoding/coding_tree.cpp
+index c073990..51f92a4 100644
+--- a/src/decoding/coding_tree.cpp
++++ b/src/decoding/coding_tree.cpp
+@@ -575,6 +575,7 @@ bool decode_slice_segment_data(DecodingContext& ctx, BitstreamReader& bs,
+     }
+ 
+     uint32_t wpp_substream_idx = 0;
++    uint32_t tile_substream_idx = 0;
+ 
+     // Initialize CABAC
+     if (!sh.dependent_slice_segment_flag) {
+@@ -632,6 +633,14 @@ bool decode_slice_segment_data(DecodingContext& ctx, BitstreamReader& bs,
+                 pps.TileId[CtbAddrInTs] != pps.TileId[CtbAddrInTs - 1]) {
+                 cabac.decode_terminate(); // end_of_subset_one_bit
+                 bs.byte_alignment();
++                // Next substream starts at its entry point (§7.3.8.1)
++                tile_substream_idx++;
++                if (!pps.entropy_coding_sync_enabled_flag &&
++                    tile_substream_idx < substream_byte_pos.size()) {
++                    bs.seek_to_byte(substream_byte_pos[tile_substream_idx]);
++                }
++                // §9.3.1: context variables are initialized at the start of each tile
++                cabac.init_contexts(static_cast<int>(sh.slice_type), sh.SliceQpY, sh.cabac_init_flag);
+                 cabac.init_decoder(bs);
+                 // §8.6.1: Reset QpY_prev at first QG in a tile
+                 ctx.QpY_prev = sh.SliceQpY;

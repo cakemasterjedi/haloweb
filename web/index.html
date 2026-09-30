@@ -1088,11 +1088,7 @@ function videoSource(file) {
       URL.revokeObjectURL(v.src);
       reject(new Error(msg));
     };
-    // Most phone cameras record HEVC (H.265) by default, which Firefox can't
-    // play on most phones.
-    const unsupported = "This browser can't play this video. Phone cameras often record HEVC (H.265): " +
-      "turn off \"High efficiency video\" (Samsung) or choose \"Most compatible\" (iPhone) in the camera " +
-      'settings, or convert it to a normal MP4 (H.264) or WebM.';
+    const unsupported = "This browser can't play this video format. Try an MP4 or WebM video.";
     v.onloadeddata = () => {
       if (settled) return;
       if (!v.videoWidth || !v.videoHeight || !isFinite(v.duration)) {
@@ -1104,7 +1100,7 @@ function videoSource(file) {
       clearTimeout(timeout);
       v.pause();
       const src = {
-        kind: 'video', video: v, width: v.videoWidth, height: v.videoHeight,
+        kind: 'video', timed: true, video: v, width: v.videoWidth, height: v.videoHeight,
         duration: v.duration,
         get count() { return Math.max(1, Math.min(MAX_FRAMES, Math.floor(Math.min(this.duration, +$('maxLen').value) * +$('fps').value))); },
         async frame(i) {
@@ -1127,8 +1123,433 @@ function videoSource(file) {
   });
 }
 
+// ---- phone videos in browsers that can't play HEVC (Firefox)
+// Most phone cameras record HEVC (H.265). Where the browser can't play it, the
+// page reads the MP4 itself and decodes the frames with a WebAssembly HEVC
+// decoder that the emblem serves (/hevc.js, /hevc.wasm).
+
+async function readBytes(file, pos, len) {
+  return new Uint8Array(await file.slice(pos, pos + len).arrayBuffer());
+}
+
+// Finds the video track of an MP4 / MOV and indexes its samples.
+async function mp4Info(file) {
+  // Top-level boxes: find moov without reading the (big) media data.
+  let pos = 0, moov = null;
+  while (pos + 8 <= file.size) {
+    const h = await readBytes(file, pos, 16);
+    const dv = new DataView(h.buffer);
+    let size = dv.getUint32(0);
+    const type = String.fromCharCode(h[4], h[5], h[6], h[7]);
+    if (size === 1) size = Number(dv.getBigUint64(8));
+    else if (size === 0) size = file.size - pos;
+    if (size < 8) throw new Error('Not an MP4');
+    if (type === 'moov') {
+      moov = await readBytes(file, pos, size);
+      break;
+    }
+    pos += size;
+  }
+  if (!moov) throw new Error('Not an MP4');
+  const dv = new DataView(moov.buffer);
+  const str = (p) => String.fromCharCode(moov[p], moov[p + 1], moov[p + 2], moov[p + 3]);
+  // Children of the box whose payload runs from start to end.
+  const boxes = (start, end) => {
+    const out = {};
+    for (let p = start; p + 8 <= end;) {
+      let size = dv.getUint32(p), head = 8;
+      if (size === 1) { size = Number(dv.getBigUint64(p + 8)); head = 16; }
+      if (size < 8) break;
+      const t = str(p + 4);
+      (out[t] = out[t] || []).push({start: p + head, end: Math.min(end, p + size)});
+      p += size;
+    }
+    return out;
+  };
+  const top = boxes(8, moov.length);
+  for (const trak of top.trak || []) {
+    const tb = boxes(trak.start, trak.end);
+    if (!tb.mdia) continue;
+    const mdia = boxes(tb.mdia[0].start, tb.mdia[0].end);
+    if (!mdia.hdlr || str(mdia.hdlr[0].start + 8) !== 'vide' || !mdia.minf) continue;
+    const mdhd = mdia.mdhd[0].start;
+    const timescale = dv.getUint32(mdhd + (moov[mdhd] === 1 ? 20 : 12));
+    const minf = boxes(mdia.minf[0].start, mdia.minf[0].end);
+    const stbl = boxes(minf.stbl[0].start, minf.stbl[0].end);
+    const get = (t) => stbl[t] && stbl[t][0].start;
+
+    // Sample description: codec and decoder set-up.
+    const entry = get('stsd') + 8;
+    const codec = str(entry + 4);
+    const info = {codec, timescale, rotation: 0};
+    const entryBoxes = boxes(entry + 8 + 78, entry + dv.getUint32(entry));
+    // Colour description (HDR videos: BT.2020 with PQ or HLG).
+    if (entryBoxes.colr) {
+      const c = entryBoxes.colr[0].start;
+      if (str(c) === 'nclx') {
+        info.colour = {primaries: dv.getUint16(c + 4), transfer: dv.getUint16(c + 6),
+          matrix: dv.getUint16(c + 8), full: !!(moov[c + 10] & 0x80)};
+      }
+    }
+    if (codec === 'hvc1' || codec === 'hev1') {
+      const cfg = entryBoxes.hvcC;
+      if (!cfg) throw new Error('No hvcC');
+      let p = cfg[0].start;
+      info.lengthSize = (moov[p + 21] & 3) + 1;
+      const arrays = moov[p + 22];
+      p += 23;
+      const params = [];
+      for (let a = 0; a < arrays; a++) {
+        const n = dv.getUint16(p + 1);
+        p += 3;
+        for (let k = 0; k < n; k++) {
+          const len = dv.getUint16(p);
+          params.push(moov.subarray(p + 2, p + 2 + len));
+          p += 2 + len;
+        }
+      }
+      info.params = params;
+    }
+
+    // Rotation from the track matrix (phones store portrait videos turned).
+    const tkhd = tb.tkhd[0].start;
+    const m = tkhd + 4 + (moov[tkhd] === 1 ? 32 : 20) + 16;
+    const ma = dv.getInt32(m), mb = dv.getInt32(m + 4), md = dv.getInt32(m + 16);
+    info.rotation = ma === 0 && mb > 0 ? 90 : ma < 0 && md < 0 ? 180 : ma === 0 && mb < 0 ? 270 : 0;
+
+    // Sample sizes, file offsets and times.
+    let s = get('stsz');
+    const fixed = dv.getUint32(s + 4), count = dv.getUint32(s + 8);
+    const sizes = new Uint32Array(count);
+    for (let i = 0; i < count; i++) sizes[i] = fixed || dv.getUint32(s + 12 + i * 4);
+    const chunks = [];
+    if (get('stco')) {
+      s = get('stco');
+      for (let i = 0, n = dv.getUint32(s + 4); i < n; i++) chunks.push(dv.getUint32(s + 8 + i * 4));
+    } else {
+      s = get('co64');
+      for (let i = 0, n = dv.getUint32(s + 4); i < n; i++) chunks.push(Number(dv.getBigUint64(s + 8 + i * 8)));
+    }
+    const offsets = new Float64Array(count);
+    s = get('stsc');
+    const runs = dv.getUint32(s + 4);
+    for (let r = 0, i = 0; r < runs; r++) {
+      const first = dv.getUint32(s + 8 + r * 12) - 1, per = dv.getUint32(s + 12 + r * 12);
+      const last = r + 1 < runs ? dv.getUint32(s + 8 + (r + 1) * 12) - 1 : chunks.length;
+      for (let c = first; c < last && i < count; c++) {
+        let off = chunks[c];
+        for (let k = 0; k < per && i < count; k++, i++) {
+          offsets[i] = off;
+          off += sizes[i];
+        }
+      }
+    }
+    const times = new Float64Array(count);
+    s = get('stts');
+    for (let r = 0, i = 0, t = 0, n = dv.getUint32(s + 4); r < n; r++) {
+      const c = dv.getUint32(s + 8 + r * 8), d = dv.getUint32(s + 12 + r * 8);
+      for (let k = 0; k < c && i < count; k++, i++, t += d) times[i] = t;
+    }
+    if (get('ctts')) {
+      s = get('ctts');
+      const signed = moov[s] === 1;
+      for (let r = 0, i = 0, n = dv.getUint32(s + 4); r < n; r++) {
+        const c = dv.getUint32(s + 8 + r * 8);
+        const o = signed ? dv.getInt32(s + 12 + r * 8) : dv.getUint32(s + 12 + r * 8);
+        for (let k = 0; k < c && i < count; k++, i++) times[i] += o;
+      }
+    }
+    // Presentation times in seconds, in display order, from the first frame.
+    const pts = Array.from(times).sort((a, b) => a - b);
+    info.pts = pts.map((t) => (t - pts[0]) / timescale);
+    const last = pts.length > 1 ? pts[pts.length - 1] - pts[pts.length - 2] : timescale / 30;
+    info.duration = (pts[pts.length - 1] - pts[0] + last) / timescale;
+    Object.assign(info, {count, sizes, offsets});
+    return info;
+  }
+  throw new Error('No video track');
+}
+
+let hevcModule = null;
+function loadHevcModule() {
+  if (!hevcModule) {
+    hevcModule = new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = '/hevc.js';
+      s.onload = () => HEVCDecoderModule({locateFile: () => '/hevc.wasm'}).then(resolve, reject);
+      s.onerror = () => reject(new Error("Couldn't load the video decoder from the emblem"));
+      document.head.appendChild(s);
+    }).catch((e) => { hevcModule = null; throw e; });
+  }
+  return hevcModule;
+}
+
+// Thin wrapper over the WebAssembly decoder (see web/vendor/hevc).
+function hevcDecoder(m) {
+  const dec = m._hevc_decoder_create();
+  if (!dec) throw new Error("Couldn't start the video decoder");
+  const fp = m._malloc(48), np = m._malloc(4);
+  const plane = (ptr, w, h, stride) => {
+    const out = new Uint16Array(w * h), base = ptr >> 1, heap = m.HEAPU16;
+    for (let y = 0; y < h; y++) out.set(heap.subarray(base + y * stride, base + y * stride + w), y * w);
+    return out;
+  };
+  const read = () => {
+    const g = (o) => m.getValue(fp + o, 'i32');
+    const w = g(12), h = g(16), cw = g(28), ch = g(32);
+    return {y: plane(g(0), w, h, g(20)), cb: plane(g(4), cw, ch, g(24)), cr: plane(g(8), cw, ch, g(24)),
+      width: w, height: h, chromaWidth: cw, chromaHeight: ch, bitDepth: g(36)};
+  };
+  return {
+    feed(data) {
+      const p = m._malloc(data.length);
+      m.HEAPU8.set(data, p);
+      const r = m._hevc_decoder_feed(dec, p, data.length);
+      m._free(p);
+      if (r !== 0) throw new Error("This video couldn't be decoded");
+    },
+    drain() {
+      if (m._hevc_decoder_drain(dec, np) !== 0) return [];
+      const out = [];
+      for (let i = 0, n = m.getValue(np, 'i32'); i < n; i++) {
+        if (m._hevc_decoder_get_drained_frame(dec, i, fp) === 0) out.push(read());
+      }
+      return out;
+    },
+    flush() {
+      if (m._hevc_decoder_flush(dec) !== 0) return [];
+      const out = [];
+      for (let i = 0; m._hevc_decoder_get_drained_frame(dec, i, fp) === 0; i++) out.push(read());
+      return out;
+    },
+    destroy() { m._hevc_decoder_destroy(dec); m._free(fp); m._free(np); },
+  };
+}
+
+// Length-prefixed NAL units (MP4) -> start codes (what the decoder reads).
+function annexB(sample, lengthSize) {
+  const parts = [];
+  let total = 0;
+  for (let p = 0; p + lengthSize <= sample.length;) {
+    let len = 0;
+    for (let k = 0; k < lengthSize; k++) len = len * 256 + sample[p + k];
+    p += lengthSize;
+    const nal = sample.subarray(p, p + len);
+    parts.push(nal);
+    total += 4 + nal.length;
+    p += len;
+  }
+  const out = new Uint8Array(total);
+  let o = 0;
+  for (const nal of parts) {
+    out[o + 3] = 1;
+    out.set(nal, o + 4);
+    o += 4 + nal.length;
+  }
+  return out;
+}
+
+// Colour conversion for a video: YUV matrix, range, and for HDR videos a
+// tone map to normal (SDR) colours, as lookup tables.
+function colourConverter(colour, bitDepth) {
+  const c = colour || {};
+  const matrix = c.matrix || (bitDepth > 8 ? 9 : 1);  // 9 = BT.2020, 1 = BT.709
+  const [kr, kb] = matrix === 9 ? [0.2627, 0.0593] : (matrix === 5 || matrix === 6) ? [0.299, 0.114] : [0.2126, 0.0722];
+  const max = (1 << bitDepth) - 1, scale = 1 << (bitDepth - 8);
+  const yOff = c.full ? 0 : 16 * scale, yRange = c.full ? max : 219 * scale;
+  const cRange = c.full ? max : 224 * scale, cMid = 128 * scale;
+  const transfer = c.transfer || 1;
+  const hdr = transfer === 16 || transfer === 18;  // PQ, HLG
+  const conv = {kr, kb, kg: 1 - kr - kb, yOff, yRange, cMid, cRange, hdr};
+  if (!hdr) return conv;
+
+  // Non-linear R'G'B' -> linear light, 1.0 = SDR reference white (203 nits).
+  const N = 4096;
+  const toLinear = new Float32Array(N);
+  for (let i = 0; i < N; i++) {
+    const v = i / (N - 1);
+    let nits;
+    if (transfer === 16) {  // PQ (SMPTE 2084)
+      const e = Math.pow(v, 1 / 78.84375);
+      nits = 10000 * Math.pow(Math.max(e - 0.8359375, 0) / (18.8515625 - 18.6875 * e), 1 / 0.1593017578125);
+    } else {  // HLG, shown on a 1000-nit display
+      const a = 0.17883277, b = 0.28466892, cc = 0.55991073;
+      const scene = v <= 0.5 ? v * v / 3 : (Math.exp((v - cc) / a) + b) / 12;
+      nits = 1000 * Math.pow(scene, 1.2);
+    }
+    toLinear[i] = nits / 203;
+  }
+  // Linear -> 8-bit sRGB.
+  const toSrgb = new Uint8Array(N);
+  for (let i = 0; i < N; i++) {
+    const v = i / (N - 1);
+    toSrgb[i] = Math.round(255 * (v <= 0.0031308 ? 12.92 * v : 1.055 * Math.pow(v, 1 / 2.4) - 0.055));
+  }
+  // BT.2020 -> BT.709 primaries.
+  const wide = (c.primaries || 9) === 9;
+  conv.m = wide ? [1.6605, -0.5876, -0.0728, -0.1246, 1.1329, -0.0083, -0.0182, -0.1006, 1.1187] : [1, 0, 0, 0, 1, 0, 0, 0, 1];
+  conv.toLinear = toLinear;
+  conv.toSrgb = toSrgb;
+  return conv;
+}
+
+// Tone curve: unchanged up to 0.7, then rolls off smoothly towards white.
+function toneMap(l) {
+  const k = 0.7;
+  return l <= k ? l : k + (1 - k) * (1 - Math.exp(-(l - k) / (1 - k)));
+}
+
+// YUV frame -> RGB canvas, turned upright. 4K is halved (plenty for 480x480).
+function yuvToCanvas(f, info, canvas) {
+  const rotation = info.rotation;
+  const cv = info.conv || (info.conv = colourConverter(info.colour, f.bitDepth));
+  const step = Math.max(1, Math.floor(Math.min(f.width, f.height) / 1080));
+  const w = Math.floor(f.width / step), h = Math.floor(f.height / step);
+  const turned = rotation === 90 || rotation === 270;
+  canvas.width = turned ? h : w;
+  canvas.height = turned ? w : h;
+  const ctx = canvas.getContext('2d');
+  const img = ctx.createImageData(canvas.width, canvas.height);
+  const d = img.data, cw = canvas.width;
+  const cx = f.chromaWidth / f.width, cy = f.chromaHeight / f.height;
+  const {kr, kb, kg, yOff, yRange, cMid, cRange, hdr} = cv;
+  const rv = 2 * (1 - kr), bu = 2 * (1 - kb);
+  const L = 4095, lin = cv.toLinear, srgb = cv.toSrgb, m = cv.m;
+  const q = (v) => lin[v <= 0 ? 0 : v >= 1 ? L : (v * L + 0.5) | 0];
+  for (let y = 0; y < h; y++) {
+    const sy = y * step;
+    const yRow = sy * f.width, cRow = Math.floor(sy * cy) * f.chromaWidth;
+    for (let x = 0; x < w; x++) {
+      const sx = x * step;
+      const Y = (f.y[yRow + sx] - yOff) / yRange;
+      const ci = cRow + Math.floor(sx * cx);
+      const U = (f.cb[ci] - cMid) / cRange, V = (f.cr[ci] - cMid) / cRange;
+      let r = Y + rv * V, b = Y + bu * U;
+      let g = (Y - kr * r - kb * b) / kg;
+      let dx = x, dy = y;
+      if (rotation === 90) { dx = h - 1 - y; dy = x; }
+      else if (rotation === 180) { dx = w - 1 - x; dy = h - 1 - y; }
+      else if (rotation === 270) { dx = y; dy = w - 1 - x; }
+      const o = (dy * cw + dx) * 4;
+      if (hdr) {
+        const lr = q(r), lg = q(g), lb = q(b);
+        r = m[0] * lr + m[1] * lg + m[2] * lb;
+        g = m[3] * lr + m[4] * lg + m[5] * lb;
+        b = m[6] * lr + m[7] * lg + m[8] * lb;
+        // Tone map on brightness so colours keep their hue.
+        const l = Math.max(r, g, b);
+        const k = l > 0 ? toneMap(l) / l : 0;
+        r *= k; g *= k; b *= k;
+        d[o] = srgb[r <= 0 ? 0 : r >= 1 ? L : (r * L + 0.5) | 0];
+        d[o + 1] = srgb[g <= 0 ? 0 : g >= 1 ? L : (g * L + 0.5) | 0];
+        d[o + 2] = srgb[b <= 0 ? 0 : b >= 1 ? L : (b * L + 0.5) | 0];
+      } else {
+        d[o] = r * 255;
+        d[o + 1] = g * 255;
+        d[o + 2] = b * 255;
+      }
+      d[o + 3] = 255;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+}
+
+async function hevcSource(file, info) {
+  const m = await loadHevcModule();
+  const canvas = document.createElement('canvas');
+  let dec = null, next = 0, out = 0, queue = [], done = true;
+  let cur = null, ahead = null, shownPts = -1;
+  const restart = () => {
+    if (dec) dec.destroy();
+    dec = hevcDecoder(m);
+    // Parameter sets (VPS, SPS, PPS) from the MP4 header, with start codes.
+    const params = new Uint8Array(info.params.reduce((n, p) => n + 4 + p.length, 0));
+    let o = 0;
+    for (const p of info.params) {
+      params[o + 3] = 1;
+      params.set(p, o + 4);
+      o += 4 + p.length;
+    }
+    dec.feed(params);
+    next = out = 0;
+    queue = [];
+    done = false;
+    cur = ahead = null;
+    shownPts = -1;
+  };
+  // Next decoded frame in display order, with its time.
+  const nextFrame = async () => {
+    while (!queue.length && !done) {
+      if (next < info.count) {
+        const sample = await readBytes(file, info.offsets[next], info.sizes[next]);
+        next++;
+        dec.feed(annexB(sample, info.lengthSize));
+        queue.push(...dec.drain());
+      } else {
+        queue.push(...dec.flush());
+        done = true;
+      }
+    }
+    const f = queue.shift();
+    if (f) f.pts = info.pts[Math.min(out++, info.pts.length - 1)];
+    return f || null;
+  };
+  // Draws the frame showing at time t (frames are decoded in order, so going
+  // back means starting again).
+  const at = async (t) => {
+    if (!dec || (cur && t < cur.pts)) restart();
+    for (;;) {
+      if (!ahead) ahead = await nextFrame();
+      if (!ahead || ahead.pts > t) break;
+      cur = ahead;
+      ahead = null;
+    }
+    if (!cur) { cur = ahead; ahead = null; }
+    if (!cur) throw new Error("This video couldn't be decoded");
+    if (cur.pts !== shownPts) {
+      yuvToCanvas(cur, info, canvas);
+      shownPts = cur.pts;
+    }
+  };
+  let busy = Promise.resolve();
+  const src = {
+    kind: 'clip', timed: true, sequential: true, width: 0, height: 0, duration: info.duration,
+    get count() { return Math.max(1, Math.min(MAX_FRAMES, Math.floor(Math.min(this.duration, +$('maxLen').value) * +$('fps').value))); },
+    frame(i) {
+      const fps = +$('fps').value;
+      // One at a time: the preview and the upload share the decoder.
+      const job = busy.then(async () => {
+        await at(Math.min(this.duration - 0.001, (i + 0.5) / fps));
+        return {image: canvas, delay: 1000 / fps};
+      });
+      busy = job.catch(() => {});
+      return job;
+    },
+    close() { busy.then(() => { if (dec) dec.destroy(); dec = null; }); },
+  };
+  await src.frame(0);
+  src.width = canvas.width;
+  src.height = canvas.height;
+  return src;
+}
+
 async function loadSource(file) {
-  if (file.type.startsWith('video/')) return videoSource(file);
+  if (file.type.startsWith('video/') || /\.(mp4|mov|m4v)$/i.test(file.name)) {
+    let info = null;
+    try { info = await mp4Info(file); } catch (e) { /* not an MP4: let the browser try */ }
+    const hevc = info && (info.codec === 'hvc1' || info.codec === 'hev1');
+    const canPlay = document.createElement('video').canPlayType('video/mp4; codecs="hvc1.1.6.L93.B0"');
+    if (hevc && !canPlay) {
+      toast('Reading video…', 3000);
+      return hevcSource(file, info);
+    }
+    try {
+      return await videoSource(file);
+    } catch (e) {
+      if (hevc) return hevcSource(file, info);
+      throw e;
+    }
+  }
   if (file.type === 'image/gif') {
     try {
       const s = await gifSource(file);
@@ -1262,7 +1683,9 @@ async function encodeAnimation(src, canvas) {
   // Size up a few sample frames first so big clips usually need one pass.
   if (count > 12) {
     let sample = 0;
-    const picks = [0, 0.25, 0.5, 0.75, 0.95].map((f) => Math.floor(f * (count - 1)));
+    // Sources that decode in order (phone videos in Firefox) are sized up
+    // from their first frames rather than decoding the whole clip twice.
+    const picks = src.sequential ? [0, 1, 2] : [0, 0.25, 0.5, 0.75, 0.95].map((f) => Math.floor(f * (count - 1)));
     for (const i of picks) {
       drawCrop(ctx, (await src.frame(i)).image);
       sample += (await toBlob(canvas, 'image/jpeg', quality)).size + 8;
@@ -1318,9 +1741,9 @@ function setupPictures() {
     }
     Object.assign(crop, {zoom: 1, rot: 0, dx: 0, dy: 0});
     $('zoom').value = 100;
-    $('fpsRow').classList.toggle('hidden', crop.src.kind !== 'video');
-    $('lenRow').classList.toggle('hidden', crop.src.kind !== 'video');
-    if (crop.src.kind === 'video') {
+    $('fpsRow').classList.toggle('hidden', !crop.src.timed);
+    $('lenRow').classList.toggle('hidden', !crop.src.timed);
+    if (crop.src.timed) {
       $('maxLen').max = Math.max(1, Math.ceil(Math.min(crop.src.duration, 60)));
       $('maxLen').value = Math.min(+$('maxLen').value, +$('maxLen').max);
       $('lenOut').textContent = $('maxLen').value + ' s';

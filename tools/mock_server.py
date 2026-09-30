@@ -76,6 +76,9 @@ class Handler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
         if path == "/":
             self.reply(200, build_html(ROOT), "text/html")
+        elif path in ("/hevc.js", "/hevc.wasm"):
+            with open(os.path.join(ROOT, "web", "vendor", "hevc", "hevc-decode" + path[5:]), "rb") as f:
+                self.reply(200, f.read(), "application/wasm" if path.endswith("wasm") else "text/javascript")
         elif path == "/api/state":
             self.state()
         else:

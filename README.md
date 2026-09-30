@@ -99,10 +99,12 @@ g++ -O2 -std=c++17 -Isrc tools/host_preview.cpp src/renderer.cpp -o preview && .
   Safari). Animated WebP needs a browser with ImageDecoder (Chrome, newer
   Firefox); otherwise its first frame is used.
 - **Videos** (MP4, WebM, MOV): pick the frame rate (10–25 fps) and length
-  (up to 60 s). The browser has to be able to play the video: many phone
-  cameras record HEVC (H.265), which Firefox usually can't. Turn off "High
-  efficiency video" (Samsung) or pick "Most compatible" (iPhone) in the camera
-  settings, or convert the clip to a normal H.264 MP4.
+  (up to 60 s). Phone videos work straight from the camera in any browser,
+  Firefox included: when the browser can't play HEVC (H.265) itself, the page
+  decodes it with a WebAssembly decoder that the emblem serves (about 110 KB,
+  `web/vendor/hevc`). HDR videos are tone-mapped to normal colours, and
+  portrait videos come out upright. That decoding runs on the phone, so a long
+  4K clip takes a while to prepare.
 - **Size limits:** animations play straight from storage, so the limit is free
   space. Internal flash (~12 MB) allows up to 8 MB per animation; a micro SD
   card allows up to 32 MB. If a clip is too big, the page lowers the quality,
@@ -148,6 +150,7 @@ src/label_font.h      bold letters for the ring (made by tools/gen_label_font.py
 src/stroke_font.h     vector font for text mode
 src/settings.h        settings + defaults
 web/index.html        phone control page
+web/vendor/hevc/      HEVC video decoder for the page (hevc.js, MIT, with a tiles fix)
 include/display_config.h  board pins / display init
 tools/                web embedding, mock server, PC preview
 ```

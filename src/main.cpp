@@ -822,6 +822,13 @@ static void handleRoot() {
     server.send_P(200, "text/html", reinterpret_cast<const char *>(INDEX_HTML_GZ), INDEX_HTML_GZ_LEN);
 }
 
+// HEVC decoder for the page (only fetched when a phone video needs it).
+static void sendGz(const char *type, const uint8_t *data, size_t len) {
+    server.sendHeader("Content-Encoding", "gzip");
+    server.sendHeader("Cache-Control", "max-age=86400");
+    server.send_P(200, type, reinterpret_cast<const char *>(data), len);
+}
+
 // Any unknown URL (including phones' "is there internet?" checks) goes to the
 // control page, which makes the phone pop it up as a sign-in page.
 static void handleNotFound() {
@@ -831,6 +838,8 @@ static void handleNotFound() {
 
 static void setupWeb() {
     server.on("/", HTTP_GET, handleRoot);
+    server.on("/hevc.js", HTTP_GET, [] { sendGz("text/javascript", HEVC_JS_GZ, HEVC_JS_GZ_LEN); });
+    server.on("/hevc.wasm", HTTP_GET, [] { sendGz("application/wasm", HEVC_WASM_GZ, HEVC_WASM_GZ_LEN); });
     server.on("/api/state", HTTP_GET, sendState);
     server.on("/api/set", HTTP_POST, handleSet);
     server.on("/api/image", HTTP_POST, handleImageDone, [] { handleUpload(IMAGE_BYTES); });
