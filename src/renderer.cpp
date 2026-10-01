@@ -579,7 +579,10 @@ Rect Renderer::drawIntro(float t, bool intoRoundel) {
     }
     // Disc: whenever it grows or turns (it also uncovers the inner rim's edge).
     if (p.discS != q.discS || p.cs != q.cs || p.sn != q.sn) {
-        const int r = int(R_DISC) + 3;
+        // While the disc grows only its current size changes; the first time it
+        // appears the inner rim's edge is uncovered too, so do the lot.
+        const float grow = q.discS > 0 ? fminf(1.0f, fmaxf(p.discS, q.discS)) : 1.0f;
+        const int r = int(ceilf(R_DISC * grow)) + 3;
         const Rect box = {int16_t(CX - r), int16_t(CY - r), int16_t(2 * r), int16_t(2 * r)};
         introArea(p, box.x, box.y, box.x + box.w, box.y + box.h);
         changed = unite(changed, box);

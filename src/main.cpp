@@ -206,12 +206,23 @@ static void resyncDisplay() {
 // Shows the back buffer: flush it from the CPU cache, hand it to the driver
 // (which switches buffers at the next vsync) and wait for that to happen, so
 // the buffer we draw into next is no longer on screen.
-static void swapBuffers() {
+// Time spent in present(), for the start-up animation's log line.
+static uint32_t presentCopyUs = 0, presentSyncUs = 0, presentWaitUs = 0;
+
+// rows y0..y0+rows-1 of the back buffer were written (only they need flushing).
+static void swapBuffers(int y0 = 0, int rows = Renderer::H) {
     uint16_t *fb = fbs[backFb];
-    esp_cache_msync(fb, IMAGE_BYTES, ESP_CACHE_MSYNC_FLAG_DIR_C2M | ESP_CACHE_MSYNC_FLAG_UNALIGNED);
+    uint32_t t = micros();
+    if (rows > 0) {
+        esp_cache_msync(fb + y0 * Renderer::W, size_t(rows) * Renderer::W * 2,
+                        ESP_CACHE_MSYNC_FLAG_DIR_C2M | ESP_CACHE_MSYNC_FLAG_UNALIGNED);
+    }
+    presentSyncUs += micros() - t;
+    t = micros();
     xSemaphoreTake(vsyncSem, 0);
     esp_lcd_panel_draw_bitmap(panel, 0, 0, Renderer::W, Renderer::H, fb);
     xSemaphoreTake(vsyncSem, pdMS_TO_TICKS(60));
+    presentWaitUs += micros() - t;
     backFb ^= 1;
 }
 
@@ -272,6 +283,7 @@ static void present(Rect r) {
     const uint16_t *src = renderer.frame();
     uint16_t *dst = fbs[backFb];
     const bool scale = softDim && effectiveBrightness() < 100;
+    const uint32_t copyStart = micros();
     for (int y = area.y; y < area.y + area.h; y++) {
         const size_t off = size_t(y) * Renderer::W + area.x;
         if (!scale && !fading) {
@@ -284,7 +296,8 @@ static void present(Rect r) {
             dst[off + x] = p;
         }
     }
-    swapBuffers();
+    presentCopyUs += micros() - copyStart;
+    swapBuffers(area.y, area.h);
     if (fading && t >= 256) {
         fadeStart = 0;
         forceFull = true;  // the other buffer still holds a mixed frame
@@ -868,7 +881,6 @@ static void sendState() {
     j += ",\"staSsid\":" + jsonString(settings.staSsid);
     j += ",\"staIp\":\"" + (WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString() : String()) + "\"";
     j += ",\"panel\":" + String(settings.panel);
-    j += ",\"lcdOtherCore\":" + String(settings.lcdOtherCore);
     j += ",\"panels\":[";
     for (int i = 0; i < PANEL_TYPE_COUNT; i++) {
         if (i) j += ",";
@@ -1073,7 +1085,6 @@ static void handleSet() {
     if (argInt("motionReact", 0, 100, v)) settings.motionReact = v;
     if (argInt("doubleTap", 0, 3, v)) settings.doubleTap = v;
     motionSetTapSensitivity(settings.doubleTap);
-    if (argInt("lcdOtherCore", 0, 1, v)) settings.lcdOtherCore = v;  // used from the next start
     if (argInt("motionOff", 0, 1, v)) {
         settings.motionOff = v;
         if (!v && !safeMode && !motionPresent()) motionBegin();  // first time on since start-up
@@ -1432,28 +1443,7 @@ static void setupDisplay() {
         return;
     }
     logf("Panel set-up commands sent\n");
-    if (settings.lcdOtherCore && !safeMode) {
-        // The driver's interrupts (which copy the picture to the panel ~65
-        // times a second) run on the core that creates it: put them on core 0
-        // so the drawing on core 1 gets its core to itself.
-        struct Args {
-            uint8_t index;
-            esp_lcd_panel_handle_t panel;
-            SemaphoreHandle_t done;
-        } args = {panelIndex, nullptr, xSemaphoreCreateBinary()};
-        xTaskCreatePinnedToCore([](void *p) {
-            Args *a = static_cast<Args *>(p);
-            a->panel = createPanel(a->index);
-            xSemaphoreGive(a->done);
-            vTaskDelete(nullptr);
-        }, "panel", 4096, &args, 5, nullptr, 0);
-        xSemaphoreTake(args.done, portMAX_DELAY);
-        vSemaphoreDelete(args.done);
-        panel = args.panel;
-        logf("Display output on core 0\n");
-    } else {
-        panel = createPanel(panelIndex);
-    }
+    panel = createPanel(panelIndex);
     if (!panel) {
         logf("Display init failed (RGB panel)\n");
         return;
@@ -1618,10 +1608,13 @@ void loop() {
         lastFrame = now;
         rampBrightness();
         // Start-up animation frame rate, for the log.
-        static uint32_t introFrames = 0, introMs = 0, introMax = 0;
+        static uint32_t introFrames = 0, introMs = 0, introMax = 0, introDrawUs = 0;
         const bool introFrame = renderer.introRunning();
+        if (introFrame && !introFrames) presentCopyUs = presentSyncUs = presentWaitUs = 0;
         const uint32_t frameStart = millis();
+        const uint32_t drawStart = micros();
         Rect r = renderer.render(now);
+        if (introFrame) introDrawUs += micros() - drawStart;
         if (forceFull || fadeStart) {
             r = {0, 0, Renderer::W, Renderer::H};
             forceFull = false;
@@ -1636,7 +1629,10 @@ void loop() {
                 logf("Start-up animation: %u frames, %u ms each on average (%.0f fps), slowest %u ms\n",
                      unsigned(introFrames), unsigned(introMs / introFrames), 1000.0f * introFrames / max<uint32_t>(introMs, 1),
                      unsigned(introMax));
-                introFrames = introMs = introMax = 0;
+                logf("  per frame: drawing %u ms, copying %u ms, cache flush %u ms, waiting for the panel %u ms\n",
+                     unsigned(introDrawUs / 1000 / introFrames), unsigned(presentCopyUs / 1000 / introFrames),
+                     unsigned(presentSyncUs / 1000 / introFrames), unsigned(presentWaitUs / 1000 / introFrames));
+                introFrames = introMs = introMax = introDrawUs = 0;
             }
         }
         slowCheck(t, "drawing");

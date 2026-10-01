@@ -108,13 +108,13 @@ struct Settings {
     DateRule rules[DATE_RULES];
 
     // Version 9.
-    alignas(4) uint8_t lcdOtherCore;  // run the display output on CPU core 0 (drawing gets core 1 to itself)
+    alignas(4) uint8_t unused9;  // was "display output on core 0" (tore the picture, didn't help)
 };
 
 // Size of the stored settings before versions 7 and 8.
 static const size_t SETTINGS_V6_SIZE = offsetof(Settings, cycleItems);
 static const size_t SETTINGS_V7_SIZE = offsetof(Settings, welcomeOn);
-static const size_t SETTINGS_V8_SIZE = offsetof(Settings, lcdOtherCore);
+static const size_t SETTINGS_V8_SIZE = offsetof(Settings, unused9);
 
 inline void settingsDefaults(Settings &s) {
     memset(&s, 0, sizeof(s));
@@ -172,7 +172,6 @@ inline void settingsDefaults(Settings &s) {
     s.welcomeSlot = 0;
     s.welcomeSens = 2;
     s.restMin = 0;
-    s.lcdOtherCore = 1;
 
     strcpy(s.apSsid, "BMW-Emblem");
     strcpy(s.apPass, "emblem123");
