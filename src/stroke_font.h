@@ -2,8 +2,8 @@
 // Tiny geometric stroke font. Glyphs are polylines on a grid with the
 // baseline at y=0 and cap height at y=8 (y points up). Each stroke is a run
 // of "xy" digit pairs; strokes are separated by spaces. A single point is a
-// dot. Rendering them as thick anti-aliased lines lets the same font be drawn
-// at any size and bent around the ring.
+// dot. Rendering them as thick anti-aliased lines lets the font be drawn at
+// any size (text mode and messages).
 #include <stdint.h>
 
 struct StrokeGlyph {

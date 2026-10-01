@@ -25,6 +25,13 @@
 #define SD_CMD 1
 #define SD_D0 42
 
+// Battery sense: the board's LiPo connector through a 1:3 divider (Waveshare
+// BAT_Driver: volts = mV * 3 / 1000 / 0.980952). A 12 V car battery can be
+// read with an INA219 module on the I2C connector instead (up to 26 V).
+#define BAT_ADC_PIN 4
+#define BAT_DIVIDER (3.0f / 0.980952f)
+#define INA219_ADDR 0x40
+
 // Backlight PWM pin. Set to -1 to dim in software instead.
 #ifndef LCD_BL_PIN
 #define LCD_BL_PIN 6
@@ -130,9 +137,9 @@ struct PanelType {
 };
 
 static const PanelType PANEL_TYPES[] = {
-    {"Waveshare 2.8C (18 MHz, recommended)", 18000000, LCD_CLK_SRC_PLL240M, 480 * 20},
-    {"Waveshare 2.8C (30 MHz, Arduino demo)", 30000000, LCD_CLK_SRC_PLL240M, 480 * 20},
-    {"Waveshare 2.8C (12 MHz)", 12000000, LCD_CLK_SRC_PLL240M, 480 * 20},
+    {"18 MHz (recommended)", 18000000, LCD_CLK_SRC_PLL240M, 480 * 20},
+    {"30 MHz (Waveshare demo)", 30000000, LCD_CLK_SRC_PLL240M, 480 * 20},
+    {"12 MHz (lightest)", 12000000, LCD_CLK_SRC_PLL240M, 480 * 20},
 };
 static const uint8_t PANEL_TYPE_COUNT = sizeof(PANEL_TYPES) / sizeof(PANEL_TYPES[0]);
 

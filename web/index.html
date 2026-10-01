@@ -2,240 +2,543 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#0b0d10">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#08090b">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>Emblem</title>
 <style>
   :root {
-    --bg: #0b0d10;
-    --card: #15181d;
-    --line: #262a31;
-    --text: #e8eaed;
-    --muted: #8b919a;
+    --bg: #08090b;
+    --card: #131519;
+    --card2: #1a1d22;
+    --line: #23262d;
+    --text: #eceef1;
+    --muted: #8a909a;
     --accent: #1c69d4;
-    --danger: #e22718;
+    --accent2: #4f94f0;
+    --ok: #2fd27a;
+    --warn: #f5a524;
+    --danger: #ff453a;
+    --radius: 18px;
+    --tabh: 64px;
   }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); }
   body {
-    margin: 0; background: var(--bg); color: var(--text);
-    font: 15px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    padding: env(safe-area-inset-top) 0 40px;
+    font: 16px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+    padding-bottom: calc(var(--tabh) + env(safe-area-inset-bottom) + 16px);
+    -webkit-user-select: none; user-select: none;
+    overscroll-behavior-y: none;
   }
-  main { max-width: 520px; margin: 0 auto; padding: 0 16px; }
-  header { display: flex; align-items: center; justify-content: space-between; padding: 14px 0 6px; }
-  h1 { font-size: 20px; margin: 0; letter-spacing: .5px; }
-  .status { font-size: 13px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
-  .dot { width: 8px; height: 8px; border-radius: 50%; background: #666; }
-  .dot.ok { background: #2ecc71; }
+  input, textarea { -webkit-user-select: text; user-select: text; }
+  main { max-width: 540px; margin: 0 auto; padding: 0 14px; }
+
+  /* Header */
+  .top { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; justify-content: space-between;
+    padding: calc(env(safe-area-inset-top) + 10px) 16px 10px; background: linear-gradient(var(--bg) 70%, rgba(8,9,11,0));
+    max-width: 540px; margin: 0 auto; }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 19px; letter-spacing: .3px; }
+  .brand svg { width: 26px; height: 26px; }
+  .pills { display: flex; gap: 6px; }
+  .pill { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); background: var(--card);
+    border: 1px solid var(--line); border-radius: 999px; padding: 5px 10px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: #555; }
+  .dot.ok { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
   .dot.bad { background: var(--danger); }
-  .preview { display: flex; justify-content: center; padding: 10px 0 14px; }
-  #preview { width: min(72vw, 280px); aspect-ratio: 1; border-radius: 50%; background: #000;
-    box-shadow: 0 0 0 6px #1b1e24, 0 12px 40px rgba(0,0,0,.6); }
-  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px; margin-bottom: 12px; }
-  .card h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin: 0 0 10px; font-weight: 600; }
-  .modes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-  button, .btn {
-    font: inherit; color: var(--text); background: #1f232a; border: 1px solid var(--line);
-    border-radius: 10px; padding: 10px 8px; cursor: pointer; text-align: center;
-  }
-  button:active { transform: scale(.98); }
-  button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
-  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; width: 100%; }
-  button.danger { color: var(--danger); }
-  .row { display: flex; align-items: center; gap: 12px; margin: 10px 0; }
-  .row label { flex: 0 0 96px; color: var(--muted); font-size: 14px; }
-  .row input[type=range] { flex: 1; }
-  .row output { flex: 0 0 42px; text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); font-size: 13px; }
-  input[type=range] { accent-color: var(--accent); height: 28px; }
-  .warn { background: #3a1512; border: 1px solid var(--danger); border-radius: 12px; padding: 12px 14px; margin-bottom: 12px; font-size: 14px; }
-  select { flex: 1; min-width: 0; font: inherit; color: var(--text); background: #0f1115; border: 1px solid var(--line); border-radius: 10px; padding: 10px; }
-  input[type=text], input[type=password] {
-    flex: 1; min-width: 0; font: inherit; color: var(--text); background: #0f1115;
-    border: 1px solid var(--line); border-radius: 10px; padding: 10px;
-  }
-  .colors { display: grid; grid-template-columns: repeat(auto-fill, minmax(90px, 1fr)); gap: 10px; }
-  .swatch { display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 12px; color: var(--muted); }
-  .swatch input { width: 100%; height: 42px; border: 1px solid var(--line); border-radius: 10px; background: none; padding: 2px; }
-  .chips { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; margin-bottom: 6px; }
-  .chips button { flex: 0 0 auto; padding: 8px 12px; display: flex; align-items: center; gap: 6px; font-size: 14px; }
-  .mini { width: 18px; height: 18px; border-radius: 50%; }
-  .slots { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
-  .slot { aspect-ratio: 1; border-radius: 50%; padding: 0; overflow: hidden; position: relative; font-size: 12px; color: var(--muted); }
+  .pill.low { color: var(--danger); border-color: rgba(255,69,58,.4); }
+
+  /* Hero preview */
+  .hero { display: flex; flex-direction: column; align-items: center; padding: 4px 0 14px; }
+  .halo { position: relative; width: min(64vw, 250px); aspect-ratio: 1; border-radius: 50%;
+    background: radial-gradient(circle, rgba(28,105,212,.25), rgba(28,105,212,0) 70%); padding: 10px; }
+  #preview { width: 100%; height: 100%; border-radius: 50%; background: #000; display: block;
+    box-shadow: 0 0 0 5px #1b1e24, 0 0 0 6px #2b2f36, 0 20px 50px rgba(0,0,0,.7); }
+  .heroMode { margin-top: 12px; font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: 1.5px; }
+  .quick { width: 100%; display: flex; align-items: center; gap: 12px; margin-top: 12px; padding: 10px 14px;
+    background: var(--card); border: 1px solid var(--line); border-radius: 999px; }
+  .quick svg { width: 22px; height: 22px; flex: 0 0 22px; color: var(--muted); }
+  .quick output { min-width: 42px; text-align: right; color: var(--muted); font-size: 14px; font-variant-numeric: tabular-nums; }
+
+  /* Cards & rows */
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; margin-bottom: 12px; }
+  .card h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 1.2px; color: var(--muted); margin: 0 0 12px; font-weight: 600; }
+  .row { display: flex; align-items: center; gap: 12px; min-height: 48px; }
+  .row + .row { border-top: 1px solid var(--line); }
+  .row > label, .row > .lbl { flex: 1; font-size: 15px; }
+  .row .sub { display: block; font-size: 12.5px; color: var(--muted); margin-top: 1px; }
+  .row output { min-width: 46px; text-align: right; color: var(--muted); font-size: 14px; font-variant-numeric: tabular-nums; }
+  .stack { display: flex; flex-direction: column; gap: 6px; padding: 8px 0; }
+  .stack + .row, .row + .stack { border-top: 1px solid var(--line); }
+  .stack .top2 { display: flex; justify-content: space-between; font-size: 15px; }
+  .stack .top2 output { color: var(--muted); font-size: 14px; }
+  .hint { color: var(--muted); font-size: 13px; margin: 8px 0 0; line-height: 1.45; }
+  .hidden { display: none !important; }
+
+  /* Controls */
+  button, .btn { font: inherit; color: var(--text); background: var(--card2); border: 1px solid var(--line);
+    border-radius: 14px; padding: 12px 14px; min-height: 48px; cursor: pointer; text-align: center; }
+  button:active { transform: scale(.97); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  button.danger { background: rgba(255,69,58,.12); border-color: rgba(255,69,58,.35); color: var(--danger); font-weight: 600; }
+  button.wide { width: 100%; }
+  button:disabled { opacity: .5; }
+  .split { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
+
+  input[type=range] { -webkit-appearance: none; appearance: none; flex: 1; height: 32px; background: transparent; width: 100%; }
+  input[type=range]::-webkit-slider-runnable-track { height: 6px; border-radius: 3px;
+    background: linear-gradient(90deg, var(--accent) var(--p, 50%), #2b2f37 var(--p, 50%)); }
+  input[type=range]::-moz-range-track { height: 6px; border-radius: 3px; background: #2b2f37; }
+  input[type=range]::-moz-range-progress { height: 6px; border-radius: 3px; background: var(--accent); }
+  input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 26px; height: 26px; border-radius: 50%;
+    background: #fff; margin-top: -10px; box-shadow: 0 2px 8px rgba(0,0,0,.5); }
+  input[type=range]::-moz-range-thumb { width: 26px; height: 26px; border-radius: 50%; background: #fff; border: 0; }
+
+  input[type=text], input[type=password], input[type=number], input[type=time], select {
+    font: inherit; color: var(--text); background: #0d0f12; border: 1px solid var(--line); border-radius: 12px;
+    padding: 11px 12px; min-height: 46px; width: 100%; }
+  .row input[type=text], .row input[type=password], .row input[type=number], .row select { width: auto; flex: 1.2; min-width: 0; }
+  input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: 0; }
+
+  .row > label.switch, .switch { position: relative; width: 52px; height: 32px; flex: 0 0 52px; }
+  .switch input { opacity: 0; width: 0; height: 0; }
+  .switch span { position: absolute; inset: 0; border-radius: 16px; background: #3a3e46; transition: .2s; }
+  .switch span::after { content: ""; position: absolute; left: 3px; top: 3px; width: 26px; height: 26px; border-radius: 50%;
+    background: #fff; transition: .2s; box-shadow: 0 2px 6px rgba(0,0,0,.4); }
+  .switch input:checked + span { background: var(--ok); }
+  .switch input:checked + span::after { transform: translateX(20px); }
+
+  .seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; background: #0d0f12; border: 1px solid var(--line);
+    border-radius: 14px; padding: 4px; gap: 4px; }
+  .seg button { border: 0; background: transparent; min-height: 42px; border-radius: 10px; color: var(--muted); font-weight: 600; }
+  .seg button.on { background: var(--card2); color: var(--text); box-shadow: 0 1px 4px rgba(0,0,0,.4); }
+
+  /* Mode tiles */
+  .modes { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
+  .tile { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 12px 2px 10px; border-radius: 16px;
+    font-size: 12px; color: var(--muted); min-height: 0; }
+  .tile svg { width: 30px; height: 30px; }
+  .tile.on { background: linear-gradient(160deg, var(--accent2), var(--accent)); border-color: transparent; color: #fff;
+    box-shadow: 0 6px 18px rgba(28,105,212,.4); }
+
+  .chips { display: flex; gap: 8px; overflow-x: auto; margin: 0 -16px 12px; padding: 0 16px 4px; scrollbar-width: none; }
+  .chips::-webkit-scrollbar { display: none; }
+  .chips button { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; min-height: 42px; padding: 8px 14px; border-radius: 999px; font-size: 14px; }
+  .picks { display: flex; flex-wrap: wrap; gap: 8px; }
+  .picks button { display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 5px 12px; border-radius: 999px; font-size: 14px; }
+  .picks button img { width: 28px; height: 28px; border-radius: 50%; object-fit: cover; margin-left: -6px; }
+  .picks button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .row input[type=time] { flex: 0 0 auto; width: auto; color-scheme: dark; }
+  .md { display: flex; gap: 6px; flex: 1.2; min-width: 0; }
+  .md select { flex: 1; min-width: 0; }
+  .rule { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+  .rule b { color: var(--ok); font-weight: 600; }
+  .rule button { min-height: 36px; padding: 4px 12px; }
+  .steps { margin: 6px 0 0; padding-left: 20px; color: var(--muted); font-size: 13.5px; }
+  .steps li { margin: 3px 0; }
+  .mini { width: 18px; height: 18px; border-radius: 50%; border: 1px solid rgba(255,255,255,.15); }
+  .mini.split2 { background: conic-gradient(var(--a) 0 25%, var(--b) 0 50%, var(--a) 0 75%, var(--b) 0); }
+
+  .colors { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 12px; padding-top: 4px; }
+  .swatch { display: flex; flex-direction: column; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+  .swatch input { -webkit-appearance: none; appearance: none; width: 48px; height: 48px; border-radius: 50%;
+    border: 2px solid var(--line); padding: 0; background: none; cursor: pointer; }
+  .swatch input::-webkit-color-swatch-wrapper { padding: 0; }
+  .swatch input::-webkit-color-swatch { border: 0; border-radius: 50%; }
+  .swatch input::-moz-color-swatch { border: 0; border-radius: 50%; }
+
+  /* Pictures */
+  .slots { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; }
+  .slot { aspect-ratio: 1; border-radius: 50%; padding: 0; min-height: 0; overflow: hidden; position: relative; font-size: 13px; color: var(--muted); }
   .slot img { width: 100%; height: 100%; object-fit: cover; display: block; }
-  .slot.on { outline: 3px solid var(--accent); outline-offset: 2px; background: #1f232a; color: var(--text); }
+  .slot.on { outline: 3px solid var(--accent); outline-offset: 2px; color: var(--text); }
   .slot .badge { position: absolute; right: 50%; bottom: 4px; transform: translateX(50%); background: rgba(0,0,0,.7); color: #fff;
     border-radius: 8px; padding: 0 5px; font-size: 10px; line-height: 16px; }
-  .seg { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: 8px 0; }
-  .seg button { padding: 8px 4px; font-size: 14px; }
-  .progress { height: 6px; background: #0f1115; border-radius: 3px; overflow: hidden; margin: 10px 0 4px; }
+  #crop { width: 100%; max-width: 260px; aspect-ratio: 1; border-radius: 50%; display: block; margin: 12px auto; background: #000; touch-action: none; }
+  .progress { height: 6px; background: #0d0f12; border-radius: 3px; overflow: hidden; margin: 12px 0 4px; }
   .progress div { height: 100%; width: 0; background: var(--accent); transition: width .15s; }
-  #crop { width: 100%; max-width: 240px; aspect-ratio: 1; border-radius: 50%; display: block; margin: 10px auto; background: #000; touch-action: none; }
-  .hint { color: var(--muted); font-size: 13px; margin: 6px 0; }
-  .hidden { display: none !important; }
-  details summary { cursor: pointer; color: var(--muted); font-size: 13px; text-transform: uppercase; letter-spacing: 1px; font-weight: 600; }
-  .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: #22262d; border: 1px solid var(--line);
-    padding: 10px 16px; border-radius: 10px; font-size: 14px; opacity: 0; transition: opacity .2s; pointer-events: none; max-width: 90vw; }
+
+  /* Power */
+  .gauge { display: flex; align-items: center; gap: 16px; }
+  .ring { --v: 0; width: 92px; height: 92px; border-radius: 50%; flex: 0 0 92px; display: grid; place-items: center;
+    background: conic-gradient(var(--gc, var(--ok)) calc(var(--v) * 1%), #262a31 0); }
+  .ring > div { width: 76px; height: 76px; border-radius: 50%; background: var(--card); display: grid; place-items: center; text-align: center; }
+  .ring b { font-size: 20px; font-variant-numeric: tabular-nums; }
+  .ring small { display: block; font-size: 11px; color: var(--muted); }
+  .gaugeText { flex: 1; }
+  .gaugeText .big { font-size: 17px; font-weight: 600; }
+  .gaugeText .muted { color: var(--muted); font-size: 13.5px; margin-top: 3px; }
+  .warn { background: rgba(255,69,58,.12); border: 1px solid rgba(255,69,58,.35); color: #ffb3ad; border-radius: 14px; padding: 12px 14px; margin-bottom: 12px; font-size: 14px; }
+
+  /* Bottom tab bar */
+  nav.tabs { position: fixed; left: 0; right: 0; bottom: 0; z-index: 10; display: flex; justify-content: center;
+    background: rgba(14,15,18,.92); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+    border-top: 1px solid var(--line); padding-bottom: env(safe-area-inset-bottom); }
+  nav.tabs .in { display: grid; grid-template-columns: repeat(4, 1fr); width: 100%; max-width: 540px; }
+  nav.tabs button { background: none; border: 0; border-radius: 0; min-height: var(--tabh); display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 3px; font-size: 11.5px; color: var(--muted); }
+  nav.tabs button svg { width: 24px; height: 24px; }
+  nav.tabs button.on { color: var(--accent2); }
+  nav.tabs button:active { transform: none; }
+
+  .toast { position: fixed; left: 50%; bottom: calc(var(--tabh) + env(safe-area-inset-bottom) + 14px); transform: translateX(-50%);
+    background: #262a31; border: 1px solid #353a43; padding: 11px 16px; border-radius: 14px; font-size: 14px;
+    opacity: 0; transition: opacity .2s; pointer-events: none; max-width: 90vw; z-index: 20; text-align: center; }
   .toast.show { opacity: 1; }
-  .split { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 </style>
 </head>
 <body>
+<div class="top">
+  <div class="brand">
+    <svg viewBox="0 0 32 32"><circle cx="16" cy="16" r="15" fill="#111" stroke="#9aa0a8" stroke-width="2"/><path d="M16 7a9 9 0 0 1 9 9h-9z" fill="#fff"/><path d="M16 16h9a9 9 0 0 1-9 9z" fill="#1c69d4"/><path d="M16 16v9a9 9 0 0 1-9-9z" fill="#fff"/><path d="M7 16a9 9 0 0 1 9-9v9z" fill="#1c69d4"/></svg>
+    Emblem
+  </div>
+  <div class="pills">
+    <div class="pill hidden" id="voltPill"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="18" height="11" rx="2"/><path d="M22 11v3"/></svg><span id="voltPillText"></span></div>
+    <div class="pill"><span class="dot" id="dot"></span><span id="statusText">Connecting…</span></div>
+  </div>
+</div>
+
 <main>
-  <header>
-    <h1>Emblem</h1>
-    <div class="status"><span class="dot" id="dot"></span><span id="statusText">Connecting…</span></div>
-  </header>
+  <div class="warn hidden" id="displayWarn">The display didn't start. Open <b>Settings</b> and try another panel type.</div>
 
-  <div class="warn hidden" id="displayWarn">The display didn't start. Open <b>Wi-Fi &amp; system</b> below and try another <b>panel type</b>.</div>
-
-  <div class="preview"><canvas id="preview" width="480" height="480"></canvas></div>
-
-  <section class="card">
-    <h2>Mode</h2>
-    <div class="modes" id="modes"></div>
-  </section>
-
-  <section class="card">
-    <h2>Display</h2>
-    <div class="row"><label for="brightness">Brightness</label><input type="range" id="brightness" min="5" max="100"><output data-for="brightness"></output></div>
-    <div class="row" id="speedRow"><label for="speed" id="speedLabel">Speed</label><input type="range" id="speed" min="-100" max="100"><output data-for="speed"></output></div>
-    <div class="row"><label for="angle">Rotation</label><input type="range" id="angle" min="-180" max="180"><output data-for="angle"></output></div>
-  </section>
-
-  <section class="card panel" data-modes="0,1">
-    <h2>Roundel</h2>
-    <div class="chips" id="roundelPresets"></div>
-    <div class="colors">
-      <div class="swatch"><input type="color" id="quadA">Quarter A</div>
-      <div class="swatch"><input type="color" id="quadB">Quarter B</div>
-      <div class="swatch"><input type="color" id="ring">Ring</div>
-      <div class="swatch"><input type="color" id="rim">Chrome</div>
-      <div class="swatch"><input type="color" id="label">Letters</div>
+  <div class="hero">
+    <div class="halo"><canvas id="preview" width="480" height="480"></canvas></div>
+    <div class="heroMode" id="heroMode"></div>
+    <div class="quick">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+      <input type="range" id="brightness" min="5" max="100" aria-label="Brightness">
+      <output data-for="brightness"></output>
     </div>
-    <div class="row"><label for="labelText">Letters</label><input type="text" id="labelText" maxlength="16" autocapitalize="characters" spellcheck="false"></div>
-    <div class="row"><label for="spacing">Spacing</label><input type="range" id="spacing" min="0" max="30"><output data-for="spacing"></output></div>
-  </section>
+  </div>
 
-  <section class="card panel" data-modes="2">
-    <h2>Stripes</h2>
-    <div class="chips" id="stripePresets"></div>
-    <div class="colors">
-      <div class="swatch"><input type="color" id="stripe1">Stripe 1</div>
-      <div class="swatch"><input type="color" id="stripe2">Stripe 2</div>
-      <div class="swatch"><input type="color" id="stripe3">Stripe 3</div>
-      <div class="swatch"><input type="color" id="stripeBg">Background</div>
+  <!-- ===================== Emblem ===================== -->
+  <section class="tab" data-tab="emblem">
+    <div class="card">
+      <h2>Mode</h2>
+      <div class="modes" id="modes"></div>
     </div>
-    <p class="hint">Speed 0 shows a single set of stripes; any other speed scrolls them.</p>
-  </section>
 
-  <section class="card panel" data-modes="3">
-    <h2>Colour</h2>
-    <div class="colors"><div class="swatch"><input type="color" id="solid">Colour</div></div>
-    <p class="hint">Speed above 0 makes it breathe.</p>
-  </section>
-
-  <section class="card panel" data-modes="4">
-    <h2>Pictures &amp; animations</h2>
-    <div class="slots" id="slots"></div>
-    <p class="hint">Tap a slot to show it. Choose a photo, GIF or video to put in the selected slot.</p>
-    <input type="file" id="file" accept="image/*,video/*" class="hidden">
-    <div class="split">
-      <button id="pick">Choose file…</button>
-      <button id="del" class="danger">Delete slot</button>
+    <div class="card">
+      <h2>Auto-cycle</h2>
+      <div class="row"><label for="cycleSec">Change design every<span class="sub">Animations finish their loop first</span></label>
+        <select id="cycleSec">
+          <option value="0">Off</option><option value="5">5 s</option><option value="10">10 s</option>
+          <option value="15">15 s</option><option value="30">30 s</option><option value="60">1 min</option>
+          <option value="120">2 min</option><option value="300">5 min</option><option value="600">10 min</option>
+        </select></div>
+      <div id="cycleOpts">
+        <p class="hint" style="margin:4px 0 10px">Designs to include (pick at least two):</p>
+        <div class="picks" id="cyclePicks"></div>
+      </div>
     </div>
-    <p class="hint" id="storage"></p>
-    <div id="cropper" class="hidden">
+
+    <div class="card">
+      <h2>Special dates</h2>
+      <p class="hint" style="margin-top:0">Show a design on certain days every year. On those days it replaces the normal design and auto-cycle.</p>
+      <div id="ruleList"></div>
+      <div class="chips" id="rulePresets" style="margin-top:12px"></div>
+      <div class="row"><label>From</label><div class="md"><select id="rfD"></select><select id="rfM"></select></div></div>
+      <div class="row"><label>Until</label><div class="md"><select id="rtD"></select><select id="rtM"></select></div></div>
+      <div class="row"><label for="rDesign">Design</label><select id="rDesign"></select></div>
+      <button class="primary wide" style="margin-top:12px" id="ruleAdd">Add date</button>
+    </div>
+
+    <div class="card" id="motionCard">
+      <h2>Motion</h2>
+      <div class="stack" id="speedRow"><div class="top2"><span id="speedLabel">Speed</span><output data-for="speed"></output></div>
+        <input type="range" id="speed" min="-100" max="100"></div>
+      <div class="stack hidden" id="animSpeedRow"><div class="top2"><span>Animation speed</span><output data-for="animSpeed"></output></div>
+        <input type="range" id="animSpeed" min="25" max="300" step="5"></div>
+      <div class="stack"><div class="top2"><span>Rotation</span><output data-for="angle"></output></div>
+        <input type="range" id="angle" min="-180" max="180"></div>
+    </div>
+
+    <div class="card panel" data-modes="0,1">
+      <h2>Roundel</h2>
+      <div class="chips" id="roundelPresets"></div>
+      <div class="colors">
+        <div class="swatch"><input type="color" id="quadA">Quarter A</div>
+        <div class="swatch"><input type="color" id="quadB">Quarter B</div>
+        <div class="swatch"><input type="color" id="ring">Ring</div>
+        <div class="swatch"><input type="color" id="rim">Rims</div>
+        <div class="swatch"><input type="color" id="label">Letters</div>
+      </div>
+      <div class="row" style="margin-top:8px"><label for="labelText">Letters</label><input type="text" id="labelText" maxlength="16" autocapitalize="characters" spellcheck="false"></div>
+      <div class="stack"><div class="top2"><span>Letter spacing</span><output data-for="spacing"></output></div>
+        <input type="range" id="spacing" min="0" max="30"></div>
+    </div>
+
+    <div class="card panel" data-modes="2">
+      <h2>Stripes</h2>
+      <div class="chips" id="stripePresets"></div>
+      <div class="colors">
+        <div class="swatch"><input type="color" id="stripe1">Stripe 1</div>
+        <div class="swatch"><input type="color" id="stripe2">Stripe 2</div>
+        <div class="swatch"><input type="color" id="stripe3">Stripe 3</div>
+        <div class="swatch"><input type="color" id="stripeBg">Carbon</div>
+      </div>
+      <p class="hint">Scroll speed 0 shows one set of stripes; anything else scrolls them.</p>
+    </div>
+
+    <div class="card panel" data-modes="3">
+      <h2>Picture</h2>
+      <p class="hint" style="margin-top:0" id="pictureHint">Showing slot 1.</p>
+      <button class="primary wide" style="margin-top:12px" id="goPictures">Choose or add pictures</button>
+    </div>
+
+    <div class="card panel" data-modes="4">
+      <h2>Text</h2>
+      <div class="row"><label for="text">Text</label><input type="text" id="text" maxlength="32" autocapitalize="characters" spellcheck="false"></div>
+      <p class="hint">Use | for a new line, e.g. M|POWER</p>
+      <div class="colors" style="margin-top:8px">
+        <div class="swatch"><input type="color" id="textFg">Text</div>
+        <div class="swatch"><input type="color" id="textBg">Background</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== Pictures ===================== -->
+  <section class="tab hidden" data-tab="pictures">
+    <div class="card">
+      <h2>Pictures &amp; animations</h2>
+      <div class="slots" id="slots"></div>
+      <p class="hint">Tap a slot to show it. Choose a photo, GIF or video to put in the selected slot.</p>
+      <input type="file" id="file" accept="image/*,video/*" class="hidden">
+      <div class="split">
+        <button class="primary" id="pick">Choose file…</button>
+        <button class="danger" id="del">Delete slot</button>
+      </div>
+      <p class="hint" id="storage"></p>
+    </div>
+    <div class="card hidden" id="cropper">
+      <h2>Fit to the display</h2>
       <canvas id="crop" width="480" height="480"></canvas>
-      <p class="hint" id="srcInfo" style="text-align:center"></p>
-      <div class="seg" id="fitModes">
+      <p class="hint" id="srcInfo" style="text-align:center;margin:0"></p>
+      <div class="seg" id="fitModes" style="margin-top:12px">
         <button data-fit="fill">Fill</button>
         <button data-fit="fit">Fit</button>
         <button data-fit="circle">Fit circle</button>
       </div>
-      <div class="row"><label for="zoom">Zoom</label><input type="range" id="zoom" min="30" max="400" value="100"><output id="zoomOut">100%</output></div>
-      <div class="row"><label for="cropBg">Background</label><input type="color" id="cropBg" value="#000000" style="height:36px;flex:0 0 60px;border:none;background:none"></div>
+      <div class="stack"><div class="top2"><span>Zoom</span><output id="zoomOut">100%</output></div>
+        <input type="range" id="zoom" min="30" max="400" value="100"></div>
+      <div class="row"><label for="cropBg">Background</label><div class="swatch"><input type="color" id="cropBg" value="#000000"></div></div>
       <div class="row hidden" id="fpsRow"><label for="fps">Frame rate</label>
         <select id="fps"><option value="10">10 fps</option><option value="15" selected>15 fps</option><option value="20">20 fps</option><option value="25">25 fps</option></select></div>
-      <div class="row hidden" id="lenRow"><label for="maxLen">Length</label><input type="range" id="maxLen" min="1" max="60" value="8"><output id="lenOut">8 s</output></div>
-      <p class="hint">Drag to position. Pinch or use Zoom to resize.</p>
+      <div class="stack hidden" id="lenRow"><div class="top2"><span>Length</span><output id="lenOut">8 s</output></div>
+        <input type="range" id="maxLen" min="1" max="60" value="8"></div>
+      <p class="hint">Drag to move, pinch to zoom.</p>
       <div class="split">
         <button id="rot">Rotate 90°</button>
         <button id="center">Re-centre</button>
       </div>
       <div class="progress hidden" id="progress"><div></div></div>
       <p class="hint hidden" id="progressText"></p>
-      <button id="upload" class="primary" style="margin-top:10px">Send to emblem</button>
+      <button id="upload" class="primary wide" style="margin-top:12px">Send to emblem</button>
     </div>
   </section>
 
-  <section class="card panel" data-modes="5">
-    <h2>Text</h2>
-    <div class="row"><label for="text">Text</label><input type="text" id="text" maxlength="32" autocapitalize="characters" spellcheck="false"></div>
-    <p class="hint">Use | for a new line, e.g. M|POWER</p>
-    <div class="colors">
-      <div class="swatch"><input type="color" id="textFg">Text</div>
-      <div class="swatch"><input type="color" id="textBg">Background</div>
+  <!-- ===================== Power ===================== -->
+  <section class="tab hidden" data-tab="power">
+    <div class="card">
+      <div class="gauge">
+        <div class="ring" id="voltRing"><div><div><b id="voltBig">—</b><small id="voltUnit">volts</small></div></div></div>
+        <div class="gaugeText">
+          <div class="big" id="powerStatus">Stays on</div>
+          <div class="muted" id="powerDetail"></div>
+        </div>
+      </div>
+      <button class="danger wide" style="margin-top:14px" id="offNow">Turn off now</button>
+      <p class="hint">When off, press the board's <b>BOOT</b> button or cut and restore power to wake it.</p>
+    </div>
+
+    <div class="card">
+      <h2>Power mode</h2>
+      <div class="seg" id="powerModes">
+        <button data-pm="0">Normal</button>
+        <button data-pm="1">Car show</button>
+      </div>
+      <div id="normalOpts">
+        <div class="row" style="margin-top:8px"><label for="autoOffMin">Turn off after<span class="sub">Counts from power-on or your last change</span></label>
+          <select id="autoOffMin">
+            <option value="0">Never</option><option value="5">5 min</option><option value="10">10 min</option>
+            <option value="15">15 min</option><option value="30">30 min</option><option value="45">45 min</option>
+            <option value="60">1 hour</option><option value="120">2 hours</option><option value="240">4 hours</option>
+          </select></div>
+      </div>
+      <div id="showOpts">
+        <div class="row" style="margin-top:8px"><label for="showHours">Stay on for<span class="sub">Battery protection still applies</span></label>
+          <select id="showHours">
+            <option value="0">Until the battery is low</option><option value="1">1 hour</option><option value="2">2 hours</option>
+            <option value="3">3 hours</option><option value="4">4 hours</option><option value="6">6 hours</option>
+            <option value="8">8 hours</option><option value="12">12 hours</option><option value="24">24 hours</option>
+          </select></div>
+        <div class="stack"><div class="top2"><span>Car show brightness</span><output data-for="showBrightness"></output></div>
+          <input type="range" id="showBrightness" min="5" max="100"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Night dimming</h2>
+      <div class="row"><label for="autoDim">Dim at night<span class="sub" id="clockInfo"></span></label>
+        <label class="switch"><input type="checkbox" id="autoDim"><span></span></label></div>
+      <div id="dimOpts">
+        <div class="stack"><div class="top2"><span>Night brightness</span><output data-for="nightBrightness"></output></div>
+          <input type="range" id="nightBrightness" min="5" max="100"></div>
+        <div class="row"><label for="nightFrom">Night from</label><input type="time" id="nightFrom"></div>
+        <div class="row"><label for="nightTo">Until</label><input type="time" id="nightTo"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Battery protection</h2>
+      <div class="row"><label for="voltSource">Voltage from</label>
+        <select id="voltSource">
+          <option value="0">Not measured</option>
+          <option value="1">Board LiPo</option>
+          <option value="2">Car battery (INA219)</option>
+        </select></div>
+      <div id="voltOpts">
+        <div class="row"><label for="lowVoltOn">Turn off on low voltage<span class="sub">After 30 s below the cutoff (ignores cranking dips)</span></label>
+          <label class="switch"><input type="checkbox" id="lowVoltOn"><span></span></label></div>
+        <div class="row"><label for="cutoff">Cutoff<span class="sub" id="cutoffHint"></span></label>
+          <input type="number" id="cutoff" step="0.05" min="2.5" max="16" inputmode="decimal" style="max-width:110px"></div>
+        <div class="row"><label for="calActual">Calibrate<span class="sub">Enter what a multimeter reads</span></label>
+          <input type="number" id="calActual" step="0.01" inputmode="decimal" placeholder="12.60" style="max-width:110px"></div>
+        <div class="split">
+          <button id="calApply">Calibrate</button>
+          <button id="calReset">Reset calibration</button>
+        </div>
+        <p class="hint">It wakes by itself every 10 minutes after a low-voltage shutdown and turns back on once the battery has recovered.</p>
+      </div>
+      <p class="hint" id="inaHint">For the 12 V car battery, wire an INA219 module to the board's I2C connector (SDA 15, SCL 7, 3.3 V, GND) with VIN+ to the battery positive. It reads up to 26 V; no other analog pin is free on this board.</p>
     </div>
   </section>
 
-  <section class="card">
-    <details>
-      <summary>Wi-Fi &amp; system</summary>
-      <p class="hint">Emblem network (the one your phone joins):</p>
+  <!-- ===================== Settings ===================== -->
+  <section class="tab hidden" data-tab="settings">
+    <div class="card">
+      <h2>Display</h2>
+      <div class="row"><label for="bootSel">Start-up<span class="sub">Plays once at power-on</span></label>
+        <select id="bootSel"></select></div>
+      <div class="row"><label for="fades">Smooth transitions<span class="sub">Crossfade when the design changes</span></label>
+        <label class="switch"><input type="checkbox" id="fades"><span></span></label></div>
+      <div class="row"><label for="panel">Panel timing</label><select id="panel"></select></div>
+      <div class="split">
+        <button id="savePanel">Apply &amp; restart</button>
+        <button id="testColours">Test colours</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Motion sensor</h2>
+      <p class="hint" style="margin-top:0" id="imuInfo"></p>
+      <div id="imuOpts">
+        <div class="stack"><div class="top2"><span>Motion effects</span><output data-for="motionReact"></output></div>
+          <input type="range" id="motionReact" min="0" max="100" step="5"></div>
+        <p class="hint" style="margin-top:0">Spin, Stripes and animations speed up when you accelerate or brake. 0 = off.</p>
+        <div class="row"><label for="doubleTap">Double-tap to change design<span class="sub" id="joltInfo"></span></label>
+          <select id="doubleTap"><option value="0">Off</option><option value="1">Firm taps</option><option value="2">Normal</option><option value="3">Light taps</option></select></div>
+        <h2 style="margin-top:14px">Welcome</h2>
+        <div class="row"><label for="welcomeOn">Welcome animation<span class="sub">Plays on a jolt (a door or the boot shutting) after the car has been still for 5 minutes</span></label>
+          <label class="switch"><input type="checkbox" id="welcomeOn"><span></span></label></div>
+        <div id="welcomeOpts">
+          <div class="row"><label for="welcomeSlot">Play</label><select id="welcomeSlot"></select></div>
+          <div class="row"><label for="welcomeSens">Jolt needed<span class="sub">Shut a door and compare with "last jolt" above</span></label>
+            <select id="welcomeSens"><option value="1">Firm (0.5 g)</option><option value="2">Normal (0.25 g)</option><option value="3">Light (0.12 g)</option></select></div>
+        </div>
+        <div class="row"><label for="restMin">Screen off when parked<span class="sub">After this long still. A jolt (with the welcome, if on) or opening this page wakes it</span></label>
+          <select id="restMin"><option value="0">Never</option><option value="2">2 min</option><option value="5">5 min</option><option value="10">10 min</option>
+            <option value="15">15 min</option><option value="30">30 min</option><option value="60">1 hour</option></select></div>
+        <h2 style="margin-top:14px">Level</h2>
+        <ol class="steps">
+          <li>Before fitting: hold the emblem still with the picture upright and tap <b>Step 1</b>.</li>
+          <li>Turn it clockwise about a quarter turn, hold it still for a second and tap <b>Step 2</b>.</li>
+          <li>Once fitted, park on level ground and tap <b>Level now</b>. Rotation on the Emblem tab fine-tunes it.</li>
+        </ol>
+        <div class="split">
+          <button id="lvl1">Step 1: upright</button>
+          <button id="lvl2">Step 2: turned</button>
+        </div>
+        <button class="primary wide" style="margin-top:10px" id="levelNow">Level now</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Wi-Fi</h2>
+      <p class="hint" style="margin-top:0">The emblem's own network (the one your phone joins):</p>
       <div class="row"><label for="apSsid">Name</label><input type="text" id="apSsid" maxlength="32"></div>
       <div class="row"><label for="apPass">Password</label><input type="password" id="apPass" maxlength="64" placeholder="unchanged"></div>
-      <p class="hint">Also join another network, e.g. your phone's hotspot (optional). The emblem's own network stays on.</p>
-      <div class="row"><label for="staSsid">Network</label><input type="text" id="staSsid" maxlength="32"></div>
+      <p class="hint">Also join your phone's hotspot (optional) so your phone keeps its internet. The emblem's own network stays on. Open it at the address shown below once it connects (it's also listed as "emblem" among your hotspot's devices). <i>emblem.local</i> doesn't work in Android browsers.</p>
+      <div class="row"><label for="staSsid">Hotspot</label><input type="text" id="staSsid" maxlength="32"></div>
       <div class="row"><label for="staPass">Password</label><input type="password" id="staPass" maxlength="64" placeholder="unchanged"></div>
       <p class="hint" id="staInfo"></p>
-      <button class="primary" id="saveWifi">Save &amp; restart</button>
-      <p class="hint" style="margin-top:16px">Display panel type. If the screen stays black or the colours look wrong, try the next one (the emblem restarts each time):</p>
-      <div class="row"><select id="panel"></select></div>
+      <button class="primary wide" style="margin-top:12px" id="saveWifi">Save &amp; restart</button>
+    </div>
+
+    <div class="card">
+      <h2>Firmware</h2>
+      <p class="hint" style="margin-top:0">Optional: install a new <code>firmware.bin</code> over Wi-Fi (from <code>.pio/build/esp32-s3-display/</code>). Settings and pictures are kept.</p>
+      <input type="file" id="fw" accept=".bin" style="margin-top:10px">
       <div class="split">
-        <button id="savePanel">Use this panel type</button>
-        <button id="testColours">Show test colours</button>
-      </div>
-      <p class="hint" style="margin-top:16px">Firmware update (.bin from PlatformIO):</p>
-      <input type="file" id="fw" accept=".bin">
-      <div class="split" style="margin-top:10px">
         <button id="flash">Update firmware</button>
         <button id="reboot">Restart</button>
       </div>
-    </details>
+    </div>
   </section>
 </main>
-<div class="toast" id="toast"></div>
 
+<nav class="tabs"><div class="in">
+  <button data-go="emblem" class="on"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 3v18M3 12h18"/></svg>Emblem</button>
+  <button data-go="pictures"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="9" cy="10" r="2"/><path d="M21 16l-5-5-9 9"/></svg>Pictures</button>
+  <button data-go="power"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3v9"/><path d="M6.3 7.3a8 8 0 1 0 11.4 0"/></svg>Power</button>
+  <button data-go="settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>Settings</button>
+</div></nav>
+<div class="toast" id="toast"></div>
 <script>
 // Stroke font, filled in from src/stroke_font.h by tools/embed_web.py.
 const FONT = /*FONT*/{};
 
-const MODES = ['Roundel', 'Spin', 'M Stripes', 'Colour', 'Picture', 'Text'];
-const SPEED_LABEL = {1: 'Spin speed', 2: 'Scroll', 3: 'Pulse'};
-const COLOR_KEYS = ['quadA', 'quadB', 'ring', 'rim', 'label', 'stripe1', 'stripe2', 'stripe3', 'stripeBg', 'solid', 'textFg', 'textBg'];
-const RANGE_KEYS = ['brightness', 'speed', 'angle', 'spacing'];
+const ICONS = {
+  roundel: '<svg viewBox="0 0 32 32"><circle cx="16" cy="16" r="14" fill="none" stroke="currentColor" stroke-width="2.5"/><path d="M16 7a9 9 0 0 1 9 9h-9z" fill="currentColor"/><path d="M7 16a9 9 0 0 0 9 9v-9z" fill="currentColor"/><circle cx="16" cy="16" r="9" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>',
+  spin: '<svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M26 16a10 10 0 1 1-3-7.1"/><path d="M26 6v5h-5"/><circle cx="16" cy="16" r="3" fill="currentColor" stroke="none"/></svg>',
+  stripes: '<svg viewBox="0 0 32 32" fill="currentColor"><path d="M9 28L17 4h4L13 28z" opacity=".55"/><path d="M14 28L22 4h4l-8 24z" opacity=".8"/><path d="M19 28L27 4h3l-8 24z"/></svg>',
+  picture: '<svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"><rect x="4" y="6" width="24" height="20" rx="4"/><circle cx="12" cy="13" r="2.5"/><path d="M28 21l-7-7-13 12"/></svg>',
+  text: '<svg viewBox="0 0 32 32" fill="currentColor"><path d="M5 25l6.5-18h3L21 25h-3.2l-1.6-4.6H9.8L8.2 25zm5.7-7.4h4.6L13 10.9z"/><path d="M22 25V13h2.8v1.4c.7-1 1.7-1.6 3.2-1.6V16c-2 0-3.2.9-3.2 3v6z"/></svg>',
+};
+const MODES = [
+  {name: 'Roundel', icon: 'roundel'}, {name: 'Spin', icon: 'spin'}, {name: 'Stripes', icon: 'stripes'},
+  {name: 'Picture', icon: 'picture'}, {name: 'Text', icon: 'text'},
+];
+const SPEED_LABEL = {1: 'Spin speed', 2: 'Scroll speed'};
+const COLOR_KEYS = ['quadA', 'quadB', 'ring', 'rim', 'label', 'stripe1', 'stripe2', 'stripe3', 'stripeBg', 'textFg', 'textBg'];
+const RANGE_KEYS = ['speed', 'angle', 'spacing', 'showBrightness', 'animSpeed', 'nightBrightness', 'motionReact'];
+const PCT_KEYS = ['brightness', 'showBrightness', 'animSpeed', 'nightBrightness', 'motionReact'];
 const TEXT_KEYS = ['labelText', 'text'];
 
 const ROUNDEL_PRESETS = [
-  {name: 'Classic', quadA: '#1C69D4', quadB: '#FFFFFF', ring: '#000000', rim: '#B8BCC2', label: '#FFFFFF'},
+  {name: 'Classic', quadA: '#2C8BD6', quadB: '#FFFFFF', ring: '#000000', rim: '#B8BCC2', label: '#FFFFFF'},
   {name: 'Blackout', quadA: '#161616', quadB: '#3A3A3A', ring: '#000000', rim: '#303030', label: '#8A8A8A'},
   {name: 'Motorsport', quadA: '#1B3D8F', quadB: '#E22718', ring: '#000000', rim: '#B8BCC2', label: '#FFFFFF'},
   {name: 'Carbon', quadA: '#1E1E1E', quadB: '#C8C8C8', ring: '#0A0A0A', rim: '#8C8C8C', label: '#C8C8C8'},
-  {name: 'Gold', quadA: '#0F3E8C', quadB: '#F5F1E6', ring: '#000000', rim: '#C9A04B', label: '#C9A04B'},
+  {name: 'Gold', quadA: '#0F3E8C', quadB: '#F5F1E6', ring: '#000000', rim: '#C9A04B', label: '#E0C27A'},
 ];
 const STRIPE_PRESETS = [
-  {name: 'M', stripe1: '#3FA9F5', stripe2: '#1B3D8F', stripe3: '#E22718', stripeBg: '#101214'},
-  {name: 'Stealth', stripe1: '#5A5A5A', stripe2: '#3A3A3A', stripe3: '#E22718', stripeBg: '#0A0A0A'},
-  {name: 'Heritage', stripe1: '#6FB6E8', stripe2: '#2A2D7C', stripe3: '#D52B1E', stripeBg: '#F2F2F2'},
+  {name: 'M', stripe1: '#3FA9F5', stripe2: '#1B3D8F', stripe3: '#E22718', stripeBg: '#16181B'},
+  {name: 'Stealth', stripe1: '#6A6D72', stripe2: '#3A3D42', stripe3: '#E22718', stripeBg: '#0E0F11'},
+  {name: 'Heritage', stripe1: '#6FB6E8', stripe2: '#2A2D7C', stripe3: '#D52B1E', stripeBg: '#2A2C30'},
 ];
+const SOURCE_NAMES = ['Not measured', 'Board battery', 'Car battery'];
 
 const $ = (id) => document.getElementById(id);
 let st = null;  // last known device state
 let online = false;
+let tab = 'emblem';
 
 // ---------------------------------------------------------------- device I/O
 
-function toast(msg, ms = 2200) {
+function toast(msg, ms = 2400) {
   const t = $('toast');
   t.textContent = msg;
   t.classList.add('show');
@@ -262,6 +565,7 @@ async function loadState() {
     st = await api('/api/state');
     setOnline(true);
     fillControls();
+    syncClock();
   } catch (e) {
     setOnline(false, 'Not connected');
     setTimeout(loadState, 3000);
@@ -288,10 +592,11 @@ async function flush() {
   inFlight = true;
   try {
     const s = await api('/api/set', body);
-    st.slots = s.slots;
-    st.staIp = s.staIp;
+    for (const k of [...LIVE_KEYS, 'cutoff', 'fsUsedKB', 'fsTotalKB', 'animMax']) st[k] = s[k];
+    updateUi();
     setOnline(true);
     renderSlots();
+    updatePowerStatus();
   } catch (e) {
     setOnline(false, 'Send failed');
   } finally {
@@ -299,25 +604,69 @@ async function flush() {
   }
 }
 
+// Background refresh: live voltage / countdown, without touching inputs.
+async function poll() {
+  if (online && !inFlight) {
+    try {
+      const s = await api('/api/state');
+      for (const k of LIVE_KEYS) st[k] = s[k];
+      if (!Object.keys(pending).length) for (const k of SELECTION_KEYS) st[k] = s[k];
+      polledAt = Date.now();
+      updatePowerStatus();
+      updateUi();
+      setOnline(true);
+    } catch (e) { setOnline(false); }
+  }
+  setTimeout(poll, tab === 'settings' && st && st.imu ? 1500 : tab === 'power' || (st && st.cycling) ? 3000 : 10000);
+}
+const LIVE_KEYS = ['volts', 'offIn', 'lowFor', 'slots', 'staIp', 'clock', 'night', 'showMode', 'showSlot', 'cycling', 'jolt', 'moving', 'boost', 'levelSet', 'resting', 'activeRule'];
+// Changed on the emblem itself (double-tap); taken over unless the user is changing them.
+const SELECTION_KEYS = ['mode', 'imageSlot'];
+let polledAt = Date.now();
+
+// ---------------------------------------------------------------- tabs
+
+function go(name) {
+  tab = name;
+  document.querySelectorAll('.tab').forEach((s) => s.classList.toggle('hidden', s.dataset.tab !== name));
+  document.querySelectorAll('nav.tabs button').forEach((b) => b.classList.toggle('on', b.dataset.go === name));
+  document.querySelector('.hero').classList.toggle('hidden', name === 'power' || name === 'settings');
+  window.scrollTo({top: 0});
+  try { localStorage.setItem('emblem-tab', name); } catch (e) {}
+}
+
 // ---------------------------------------------------------------- controls
 
+function paintRange(el) {
+  const p = (el.value - el.min) / (el.max - el.min) * 100;
+  el.style.setProperty('--p', p + '%');
+}
+
 function buildControls() {
-  MODES.forEach((name, i) => {
+  MODES.forEach((m, i) => {
     const b = document.createElement('button');
-    b.textContent = name;
+    b.className = 'tile';
+    b.innerHTML = ICONS[m.icon] + m.name;
     b.dataset.mode = i;
     b.onclick = () => send({mode: i});
     $('modes').appendChild(b);
   });
 
-  for (const k of RANGE_KEYS) $(k).addEventListener('input', (e) => send({[k]: +e.target.value}));
+  for (const k of RANGE_KEYS) $(k).addEventListener('input', (e) => { paintRange(e.target); send({[k]: +e.target.value}); });
+  // The quick slider adjusts whichever brightness is in use (car show has its own).
+  $('brightness').addEventListener('input', (e) => {
+    paintRange(e.target);
+    send({[activeBrightnessKey()]: +e.target.value});
+  });
   for (const k of COLOR_KEYS) $(k).addEventListener('input', (e) => send({[k]: e.target.value.toUpperCase()}));
   for (const k of TEXT_KEYS) $(k).addEventListener('input', (e) => send({[k]: e.target.value.toUpperCase()}));
+  $('goPictures').onclick = () => go('pictures');
+  $('cycleSec').onchange = (e) => send({cycleSec: +e.target.value});
+  document.querySelectorAll('nav.tabs button').forEach((b) => b.onclick = () => go(b.dataset.go));
 
   const chips = (el, presets, keys) => presets.forEach((p) => {
     const b = document.createElement('button');
-    const dots = keys.slice(0, 2).map((k) => `<span class="mini" style="background:${p[k]}"></span>`).join('');
-    b.innerHTML = dots + p.name;
+    b.innerHTML = `<span class="mini split2" style="--a:${p[keys[0]]};--b:${p[keys[1]]}"></span>${p.name}`;
     b.onclick = () => { const c = {...p}; delete c.name; send(c); fillControls(); };
     $(el).appendChild(b);
   });
@@ -325,30 +674,373 @@ function buildControls() {
   chips('stripePresets', STRIPE_PRESETS, ['stripe1', 'stripe3']);
 }
 
+function activeBrightnessKey() {
+  return st.powerMode === 1 ? 'showBrightness' : 'brightness';
+}
+
 function fillControls() {
   for (const k of [...RANGE_KEYS, ...TEXT_KEYS]) $(k).value = st[k];
+  document.querySelectorAll('input[type=range]').forEach(paintRange);
   for (const k of COLOR_KEYS) $(k).value = st[k].toLowerCase();
   $('apSsid').value = st.apSsid;
-  $('panel').innerHTML = (st.panels || []).map((n, i) => `<option value="${i}">${i + 1}. ${n}</option>`).join('');
+  $('panel').innerHTML = (st.panels || []).map((n, i) => `<option value="${i}">${n}</option>`).join('');
   $('panel').value = st.panel;
+  fillBootSel();
+  $('fades').checked = !!st.fades;
+  $('cycleSec').value = st.cycleSec;
+  $('autoDim').checked = !!st.autoDim;
+  $('nightFrom').value = hhmm(st.nightFrom);
+  $('nightTo').value = hhmm(st.nightTo);
+  $('doubleTap').value = st.doubleTap;
+  $('welcomeOn').checked = !!st.welcomeOn;
+  $('welcomeSens').value = st.welcomeSens;
+  $('restMin').value = st.restMin;
   $('displayWarn').classList.toggle('hidden', st.display !== false);
   $('staSsid').value = st.staSsid;
   $('staInfo').textContent = st.staSsid
-    ? (st.staIp ? `Joined "${st.staSsid}" — also reachable at http://${st.staIp}` : `Not connected to "${st.staSsid}" right now.`)
+    ? (st.staIp ? `Joined "${st.staSsid}". Also reachable at http://${st.staIp}` : `Not connected to "${st.staSsid}" right now.`)
     : '';
+  fillPower();
   renderSlots();
   updateUi();
 }
 
 function updateUi() {
-  document.querySelectorAll('#modes button').forEach((b) => b.classList.toggle('on', +b.dataset.mode === st.mode));
+  document.querySelectorAll('#modes .tile').forEach((b) => b.classList.toggle('on', +b.dataset.mode === st.mode));
   document.querySelectorAll('.panel').forEach((p) => p.classList.toggle('hidden', !p.dataset.modes.split(',').includes(String(st.mode))));
   $('speedRow').classList.toggle('hidden', !SPEED_LABEL[st.mode]);
   $('speedLabel').textContent = SPEED_LABEL[st.mode] || 'Speed';
-  document.querySelectorAll('output').forEach((o) => {
+  const anims = st.slots && st.slots.some((k, i) => k === 2 && ((st.mode === 3 && st.imageSlot === i) ||
+    (st.cycling && st.cycleItems & (1 << (8 + i)))));
+  $('animSpeedRow').classList.toggle('hidden', !anims);
+  $('cycleOpts').classList.toggle('hidden', !st.cycleSec);
+  $('dimOpts').classList.toggle('hidden', !st.autoDim);
+  renderCyclePicks();
+  renderRules();
+  updateLive();
+  $('pictureHint').textContent = `Showing slot ${st.imageSlot + 1}` +
+    (st.slots && st.slots[st.imageSlot] === 2 ? ' (animation).' : st.slots && st.slots[st.imageSlot] ? '.' : ', which is empty.');
+  document.querySelectorAll('output[data-for]').forEach((o) => {
     const k = o.dataset.for;
-    o.textContent = st[k] + (k === 'brightness' ? '%' : k === 'angle' ? '°' : '');
+    o.textContent = (k === 'motionReact' && !st[k] ? 'Off' : st[k]) + (PCT_KEYS.includes(k) && st[k] ? '%' : k === 'angle' ? '°' : '');
   });
+  const bk = activeBrightnessKey();
+  $('brightness').value = st[bk];
+  paintRange($('brightness'));
+  document.querySelector('output[data-for=brightness]').textContent = st[bk] + '%';
+  $('showBrightness').value = st.showBrightness;
+  paintRange($('showBrightness'));
+  fillPowerMode();
+}
+
+// What the emblem is showing (auto-cycle may differ from the selection).
+function previewItem() {
+  return st.cycling || st.activeRule >= 0 ? {mode: st.showMode, slot: st.showSlot} : {mode: st.mode, slot: st.imageSlot};
+}
+
+const hhmm = (m) => String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0');
+const minutes = (v) => { const [h, m] = v.split(':').map(Number); return h * 60 + m; };
+
+// The emblem keeps time with its clock chip; set it from the phone.
+async function syncClock() {
+  try {
+    const s = await api('/api/set', new URLSearchParams({
+      clock: Math.floor(Date.now() / 1000), tz: -new Date().getTimezoneOffset()}));
+    for (const k of LIVE_KEYS) st[k] = s[k];
+    updateLive();
+  } catch (e) { /* not important */ }
+}
+
+// Readouts that change on their own (clock, motion, auto-cycle).
+function updateLive() {
+  if (!st) return;
+  $('clockInfo').textContent = !st.rtc ? 'No clock chip found on the board'
+    : st.clock ? `Emblem time ${st.clock}${st.autoDim ? (st.night ? ' · night now' : ' · day now') : ''}`
+    : 'Clock not set yet (it is set when this page opens)';
+  $('imuInfo').textContent = st.imu ? (st.levelSet ? 'Found and set up.' : 'Found. Do the level set-up below once.')
+    : 'No motion sensor found on this board.';
+  $('imuOpts').classList.toggle('hidden', !st.imu);
+  if (st.imu && st.jolt != null) {
+    $('joltInfo').textContent = `Last jolt ${(+st.jolt).toFixed(2)} g · ${st.moving ? 'driving' : 'still'}` +
+      ' (taps are ignored while driving)';
+  }
+  $('levelNow').disabled = !st.levelSet;
+  const item = previewItem();
+  $('heroMode').textContent = st.resting ? 'Screen off (parked)'
+    : (st.activeRule >= 0 ? 'Special date · ' : st.cycling ? 'Auto-cycle · ' : '') +
+      (MODES[item.mode] ? designName(item.mode, item.slot) : '');
+  $('welcomeOpts').classList.toggle('hidden', !st.welcomeOn);
+}
+
+// ---------------------------------------------------------------- special dates
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const DATE_PRESETS = [
+  ['Christmas', 12, 1, 12, 26], ['New Year', 12, 31, 1, 1], ['Halloween', 10, 31, 10, 31],
+  ["Valentine's", 2, 14, 2, 14], ['4th of July', 7, 4, 7, 4], ["St Patrick's", 3, 17, 3, 17],
+];
+
+function parseRules() {
+  return (st.rules || '').split(';').filter(Boolean).map((r) => r.split('.').map(Number));
+}
+
+function designName(mode, slot) {
+  return mode === 3 ? ((st.slots && st.slots[slot] === 2 ? 'Animation ' : 'Picture ') + (slot + 1)) : MODES[mode].name;
+}
+
+// The designs a date can show: the modes plus filled picture slots.
+function designOptions() {
+  const opts = [[0, 0], [1, 0], [2, 0], [4, 0]];
+  (st.slots || []).forEach((k, i) => { if (k) opts.push([3, i]); });
+  return opts;
+}
+
+function renderRules() {
+  const rules = parseRules();
+  $('ruleList').innerHTML = '';
+  rules.forEach(([fm, fd, tm, td, mode, slot], i) => {
+    const row = document.createElement('div');
+    row.className = 'rule';
+    const range = fm === tm && fd === td ? `${fd} ${MONTHS[fm - 1]}` : `${fd} ${MONTHS[fm - 1]} – ${td} ${MONTHS[tm - 1]}`;
+    row.innerHTML = `<span>${range} · ${designName(mode, slot)}${st.activeRule === i ? ' <b>· today</b>' : ''}</span>`;
+    const del = document.createElement('button');
+    del.textContent = 'Remove';
+    del.onclick = () => send({rules: rules.filter((_, k) => k !== i).map((r) => r.join('.')).join(';')});
+    row.appendChild(del);
+    $('ruleList').appendChild(row);
+  });
+  const cur = $('rDesign').value;
+  $('rDesign').innerHTML = designOptions().map(([m, sl]) => `<option value="${m}.${sl}">${designName(m, sl)}</option>`).join('');
+  if ([...$('rDesign').options].some((o) => o.value === cur)) $('rDesign').value = cur;
+  $('ruleAdd').disabled = rules.length >= 8;
+}
+
+function setupRules() {
+  const days = Array.from({length: 31}, (_, i) => `<option value="${i + 1}">${i + 1}</option>`).join('');
+  const months = MONTHS.map((m, i) => `<option value="${i + 1}">${m}</option>`).join('');
+  for (const id of ['rfD', 'rtD']) $(id).innerHTML = days;
+  for (const id of ['rfM', 'rtM']) $(id).innerHTML = months;
+  const today = new Date();
+  $('rfD').value = $('rtD').value = today.getDate();
+  $('rfM').value = $('rtM').value = today.getMonth() + 1;
+  for (const [name, fm, fd, tm, td] of DATE_PRESETS) {
+    const b = document.createElement('button');
+    b.textContent = name;
+    b.onclick = () => { $('rfM').value = fm; $('rfD').value = fd; $('rtM').value = tm; $('rtD').value = td; };
+    $('rulePresets').appendChild(b);
+  }
+  $('ruleAdd').onclick = () => {
+    const [mode, slot] = $('rDesign').value.split('.').map(Number);
+    const rule = [+$('rfM').value, +$('rfD').value, +$('rtM').value, +$('rtD').value, mode, slot];
+    send({rules: [...parseRules(), rule].map((r) => r.join('.')).join(';')});
+    toast('Date added');
+  };
+}
+
+// Auto-cycle choices: the modes plus every filled picture slot.
+function renderCyclePicks() {
+  const el = $('cyclePicks');
+  const picks = [[0, 'Roundel'], [1, 'Spin'], [2, 'Stripes'], [4, 'Text']];
+  (st.slots || []).forEach((k, i) => { if (k) picks.push([8 + i, (k === 2 ? 'Animation ' : 'Picture ') + (i + 1), i]); });
+  el.innerHTML = '';
+  for (const [bit, name, slot] of picks) {
+    const b = document.createElement('button');
+    const t = slot != null && getThumb(slot);
+    b.innerHTML = (t ? `<img src="${t}" alt="">` : '') + name;
+    b.classList.toggle('on', !!(st.cycleItems & (1 << bit)));
+    b.onclick = () => send({cycleItems: st.cycleItems ^ (1 << bit)});
+    el.appendChild(b);
+  }
+}
+
+// Clip choices (start-up, welcome): the built-in animation or a filled picture slot.
+function clipOptions(current, withOff) {
+  const opts = withOff ? [['off', 'Off']] : [];
+  opts.push(['0', 'Built-in (ring sweep)']);
+  (st.slots || []).forEach((k, i) => {
+    if (k || current === i + 1) opts.push([String(i + 1), (k === 2 ? 'Animation ' : k ? 'Picture ' : 'Slot ') + (i + 1)]);
+  });
+  return opts.map(([v, n]) => `<option value="${v}">${n}</option>`).join('');
+}
+
+function fillBootSel() {
+  $('bootSel').innerHTML = clipOptions(st.bootSlot, true);
+  $('bootSel').value = st.startupAnim ? String(st.bootSlot) : 'off';
+  $('welcomeSlot').innerHTML = clipOptions(st.welcomeSlot, false);
+  $('welcomeSlot').value = String(st.welcomeSlot);
+}
+
+async function motionAction(what) {
+  try {
+    toast(await api('/api/motion?do=' + what, new URLSearchParams()), 5000);
+    if (what !== 'upright') {
+      const s = await api('/api/state');
+      st.levelSet = s.levelSet;
+      st.angle = s.angle;
+      fillControls();
+    }
+  } catch (e) { toast(e.message, 5000); }
+}
+
+// ---------------------------------------------------------------- power
+
+function fillPowerMode() {
+  document.querySelectorAll('#powerModes button').forEach((b) => b.classList.toggle('on', +b.dataset.pm === st.powerMode));
+  $('normalOpts').classList.toggle('hidden', st.powerMode !== 0);
+  $('showOpts').classList.toggle('hidden', st.powerMode !== 1);
+}
+
+function fillPower() {
+  $('autoOffMin').value = st.autoOffMin;
+  $('showHours').value = st.showHours;
+  $('voltSource').value = st.voltSource;
+  $('lowVoltOn').checked = !!st.lowVoltOn;
+  $('cutoff').value = (+st.cutoff).toFixed(2);
+  fillPowerMode();
+  fillVoltOpts();
+  updatePowerStatus();
+}
+
+function fillVoltOpts() {
+  $('voltOpts').classList.toggle('hidden', st.voltSource === 0);
+  $('inaHint').classList.toggle('hidden', st.voltSource === 1);
+  $('cutoffHint').textContent = st.voltSource === 1
+    ? 'LiPo: 3.4 V is a safe cutoff'
+    : '12.0 V ≈ half charged; stay above 11.8 V to start the car';
+}
+
+function fmtTime(s) {
+  s = Math.max(0, Math.round(s));
+  const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), sec = s % 60;
+  return h ? `${h}h ${String(m).padStart(2, '0')}m` : `${m}:${String(sec).padStart(2, '0')}`;
+}
+
+function chargePct(v) {
+  if (v == null) return 0;
+  const [lo, hi] = st.voltSource === 1 ? [3.3, 4.2] : [11.8, 12.7];
+  return Math.max(0, Math.min(100, (v - lo) / (hi - lo) * 100));
+}
+
+function updatePowerStatus() {
+  if (!st) return;
+  const v = st.volts;
+  const pct = chargePct(v);
+  const ring = $('voltRing');
+  ring.style.setProperty('--v', v == null ? 0 : Math.max(4, pct));
+  ring.style.setProperty('--gc', pct < 20 ? 'var(--danger)' : pct < 50 ? 'var(--warn)' : 'var(--ok)');
+  $('voltBig').textContent = v == null ? '—' : v.toFixed(2);
+  $('voltUnit').textContent = v == null ? (st.voltSource ? 'no reading' : 'not measured') : 'volts';
+
+  const pill = $('voltPill');
+  pill.classList.toggle('hidden', v == null);
+  pill.classList.toggle('low', v != null && st.lowVoltOn && v < st.cutoff);
+  $('voltPillText').textContent = v == null ? '' : v.toFixed(1) + ' V';
+
+  const elapsed = (Date.now() - polledAt) / 1000;
+  let status, detail = '';
+  if (st.lowFor > 0) {
+    status = 'Low voltage';
+    detail = `Turning off in ${fmtTime(30 - st.lowFor - elapsed)} unless it recovers`;
+  } else if (st.offIn >= 0) {
+    status = `Turns off in ${fmtTime(st.offIn - elapsed)}`;
+    detail = st.powerMode === 1 ? 'Car show timer' : 'Auto-off timer';
+  } else {
+    status = st.powerMode === 1 ? 'Car show: stays on' : 'Stays on';
+  }
+  if (st.voltSource) {
+    detail += (detail ? ' · ' : '') + SOURCE_NAMES[st.voltSource] +
+      (st.lowVoltOn ? `, cutoff ${(+st.cutoff).toFixed(2)} V` : ', no cutoff');
+  }
+  $('powerStatus').textContent = status;
+  $('powerDetail').textContent = detail;
+}
+
+function setupPower() {
+  document.querySelectorAll('#powerModes button').forEach((b) => b.onclick = () => send({powerMode: +b.dataset.pm}));
+  $('autoOffMin').onchange = (e) => send({autoOffMin: +e.target.value});
+  $('autoDim').onchange = (e) => send({autoDim: e.target.checked ? 1 : 0});
+  $('nightFrom').onchange = (e) => e.target.value && send({nightFrom: minutes(e.target.value)});
+  $('nightTo').onchange = (e) => e.target.value && send({nightTo: minutes(e.target.value)});
+  $('showHours').onchange = (e) => send({showHours: +e.target.value});
+  $('voltSource').onchange = (e) => {
+    const src = +e.target.value;
+    const c = {voltSource: src, volts: null};
+    // Sensible default cutoff for the chosen battery.
+    if (src === 1 && st.cutoff > 5) c.cutoff = 3.4;
+    if (src === 2 && st.cutoff < 5) c.cutoff = 12.0;
+    send(c);
+    fillPower();
+  };
+  $('lowVoltOn').onchange = (e) => send({lowVoltOn: e.target.checked ? 1 : 0});
+  $('cutoff').onchange = (e) => { const v = parseFloat(e.target.value); if (v > 0) send({cutoff: v.toFixed(2)}); };
+  $('calApply').onclick = () => {
+    const v = parseFloat($('calActual').value);
+    if (!(v > 0)) { toast('Enter the voltage your meter shows'); return; }
+    send({calibrateTo: v.toFixed(2)});
+    toast('Calibrated');
+  };
+  $('calReset').onclick = () => { send({calibrateReset: 1}); toast('Calibration reset'); };
+  $('offNow').onclick = async () => {
+    if (!confirm('Turn the emblem off now? Press BOOT or cut power to wake it.')) return;
+    try { toast(await api('/api/power/off', new URLSearchParams()), 5000); } catch (e) {}
+    setOnline(false, 'Off');
+  };
+  setInterval(() => { if (tab === 'power') updatePowerStatus(); }, 1000);
+}
+
+// ---------------------------------------------------------------- settings
+
+function setupSystem() {
+  $('bootSel').onchange = (e) => {
+    const v = e.target.value;
+    send(v === 'off' ? {startupAnim: 0} : {startupAnim: 1, bootSlot: +v});
+  };
+  $('fades').onchange = (e) => send({fades: e.target.checked ? 1 : 0});
+  $('doubleTap').onchange = (e) => send({doubleTap: +e.target.value});
+  $('welcomeOn').onchange = (e) => send({welcomeOn: e.target.checked ? 1 : 0});
+  $('welcomeSlot').onchange = (e) => send({welcomeSlot: +e.target.value});
+  $('welcomeSens').onchange = (e) => send({welcomeSens: +e.target.value});
+  $('restMin').onchange = (e) => send({restMin: +e.target.value});
+  $('lvl1').onclick = () => motionAction('upright');
+  $('lvl2').onclick = () => motionAction('clockwise');
+  $('levelNow').onclick = () => motionAction('level');
+  $('saveWifi').onclick = async () => {
+    const body = new URLSearchParams({apSsid: $('apSsid').value, staSsid: $('staSsid').value});
+    if ($('apPass').value) body.append('apPass', $('apPass').value);
+    if ($('staPass').value || !$('staSsid').value) body.append('staPass', $('staPass').value);
+    try {
+      toast(await api('/api/wifi', body), 5000);
+      setOnline(false, 'Restarting…');
+      setTimeout(loadState, 6000);
+    } catch (e) { toast(e.message, 5000); }
+  };
+  $('savePanel').onclick = async () => {
+    try {
+      toast(await api('/api/panel', new URLSearchParams({panel: $('panel').value})), 5000);
+      setOnline(false, 'Restarting…');
+      setTimeout(loadState, 7000);
+    } catch (e) { toast(e.message, 5000); }
+  };
+  $('testColours').onclick = async () => {
+    try { toast(await api('/api/test', new URLSearchParams()), 3000); } catch (e) { toast(e.message, 4000); }
+  };
+  $('reboot').onclick = async () => {
+    try { await api('/api/reboot', new URLSearchParams()); } catch (e) {}
+    setOnline(false, 'Restarting…');
+    setTimeout(loadState, 6000);
+  };
+  $('flash').onclick = async () => {
+    const f = $('fw').files[0];
+    if (!f) { toast('Choose a firmware .bin first'); return; }
+    const form = new FormData();
+    form.append('firmware', f, f.name);
+    toast('Updating… keep the phone close', 60000);
+    try {
+      toast(await api('/update', form), 5000);
+      setOnline(false, 'Restarting…');
+      setTimeout(loadState, 8000);
+    } catch (e) { toast('Update failed: ' + e.message, 5000); }
+  };
 }
 
 // ---------------------------------------------------------------- pictures
@@ -371,9 +1063,13 @@ function renderSlots() {
     const t = st.slots[i] && getThumb(i);
     b.innerHTML = (t ? `<img src="${t}" alt="">` : (st.slots[i] ? `#${i + 1}` : '+')) +
       (st.slots[i] === 2 ? '<span class="badge">▶</span>' : '');
-    b.onclick = () => send({imageSlot: i, mode: 4});
+    b.onclick = () => send({imageSlot: i, mode: 3});
     el.appendChild(b);
   }
+  // Lists that depend on which slots are filled.
+  if ($('bootSel') !== document.activeElement && $('welcomeSlot') !== document.activeElement) fillBootSel();
+  renderCyclePicks();
+  renderRules();
   if (st.fsTotalKB) {
     const mb = (kb) => (kb / 1024).toFixed(kb < 10240 ? 1 : 0);
     const where = st.storage === 'sd' ? 'Micro SD card' : 'Internal storage';
@@ -399,7 +1095,203 @@ function stillSource(file) {
   });
 }
 
-// GIF, animated WebP/PNG via the browser's ImageDecoder (Chrome / Android).
+// GIF decoder, so GIF animations work in every browser (Firefox and Safari
+// don't have ImageDecoder). parseGif() indexes the frames; frames are
+// decoded one at a time and composited the way browsers show them.
+function parseGif(buf) {
+  const b = new Uint8Array(buf);
+  const sig = String.fromCharCode(...b.subarray(0, 6));
+  if (sig !== 'GIF87a' && sig !== 'GIF89a') throw new Error('Not a GIF');
+  const width = b[6] | (b[7] << 8), height = b[8] | (b[9] << 8);
+  let p = 13;
+  let globalTable = null;
+  if (b[10] & 0x80) {
+    const n = 3 << ((b[10] & 7) + 1);
+    globalTable = b.subarray(p, p + n);
+    p += n;
+  }
+  const frames = [];
+  let gce = {delay: 0, disposal: 0, transparent: -1};
+  const skipBlocks = () => {
+    while (p < b.length && b[p]) p += b[p] + 1;
+    p++;
+  };
+  while (p < b.length) {
+    const t = b[p++];
+    if (t === 0x3B) break;  // trailer
+    if (t === 0x21) {  // extension
+      const label = b[p++];
+      if (label === 0xF9 && b[p] >= 4) {
+        const flags = b[p + 1];
+        gce = {
+          delay: (b[p + 2] | (b[p + 3] << 8)) * 10,
+          disposal: (flags >> 2) & 7,
+          transparent: flags & 1 ? b[p + 4] : -1,
+        };
+      }
+      skipBlocks();
+    } else if (t === 0x2C) {  // image
+      const f = {
+        x: b[p] | (b[p + 1] << 8), y: b[p + 2] | (b[p + 3] << 8),
+        w: b[p + 4] | (b[p + 5] << 8), h: b[p + 6] | (b[p + 7] << 8),
+        interlaced: !!(b[p + 8] & 0x40), table: globalTable, ...gce,
+      };
+      const flags = b[p + 8];
+      p += 9;
+      if (flags & 0x80) {
+        const n = 3 << ((flags & 7) + 1);
+        f.table = b.subarray(p, p + n);
+        p += n;
+      }
+      f.minCode = b[p++];
+      f.data = p;
+      skipBlocks();
+      if (f.table && f.w && f.h) frames.push(f);
+      gce = {delay: 0, disposal: 0, transparent: -1};
+      if (frames.length >= MAX_FRAMES) break;
+    } else {
+      break;  // unknown block: stop here and keep what we have
+    }
+  }
+  if (!frames.length) throw new Error('Empty GIF');
+  return {bytes: b, width, height, frames};
+}
+
+// LZW-decodes one frame's pixels into colour indices.
+function gifIndices(gif, f) {
+  const b = gif.bytes;
+  const n = f.w * f.h;
+  const out = new Uint8Array(n);
+  const prefix = new Uint16Array(4096), suffix = new Uint8Array(4096), stack = new Uint8Array(4097);
+  const clear = 1 << f.minCode, eoi = clear + 1;
+  let size = f.minCode + 1, mask = (1 << size) - 1, next = eoi + 1, old = -1, first = 0;
+  let bits = 0, datum = 0, o = 0;
+  let p = f.data, blockEnd = p;
+  for (let i = 0; i < clear; i++) suffix[i] = i;
+  outer:
+  while (o < n) {
+    while (bits < size) {
+      if (p >= blockEnd) {
+        const len = b[p++];
+        if (!len || p >= b.length) break outer;
+        blockEnd = p + len;
+      }
+      datum |= b[p++] << bits;
+      bits += 8;
+    }
+    let code = datum & mask;
+    datum >>= size;
+    bits -= size;
+    if (code === clear) {
+      size = f.minCode + 1;
+      mask = (1 << size) - 1;
+      next = eoi + 1;
+      old = -1;
+      continue;
+    }
+    if (code === eoi) break;
+    if (old === -1) {
+      out[o++] = suffix[code];
+      old = first = code;
+      continue;
+    }
+    const inCode = code;
+    let sp = 0;
+    if (code >= next) {  // the KwKwK case
+      stack[sp++] = first;
+      code = old;
+    }
+    while (code >= clear) {
+      stack[sp++] = suffix[code];
+      code = prefix[code];
+    }
+    first = suffix[code];
+    stack[sp++] = first;
+    while (sp && o < n) out[o++] = stack[--sp];
+    if (next < 4096) {
+      prefix[next] = old;
+      suffix[next] = first;
+      next++;
+      if ((next & mask) === 0 && next < 4096) {
+        size++;
+        mask = (1 << size) - 1;
+      }
+    }
+    old = inCode;
+  }
+  if (!f.interlaced) return out;
+  const rows = new Uint8Array(n);
+  let src = 0;
+  for (const [start, step] of [[0, 8], [4, 8], [2, 4], [1, 2]]) {
+    for (let y = start; y < f.h; y += step) {
+      rows.set(out.subarray(src, src + f.w), y * f.w);
+      src += f.w;
+    }
+  }
+  return rows;
+}
+
+async function gifSource(file) {
+  const gif = parseGif(await file.arrayBuffer());
+  const {width, height, frames} = gif;
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d');
+  let pixels = ctx.createImageData(width, height);
+  let shown = -1;       // frame currently in pixels
+  let restore = null;   // copy for "restore to previous"
+  const reset = () => {
+    pixels = ctx.createImageData(width, height);
+    shown = -1;
+    restore = null;
+  };
+  const step = () => {
+    // Undo the previous frame as its disposal method asks.
+    if (shown >= 0) {
+      const pf = frames[shown];
+      if (pf.disposal === 2) {
+        for (let y = pf.y; y < Math.min(height, pf.y + pf.h); y++) {
+          pixels.data.fill(0, (y * width + pf.x) * 4, (y * width + Math.min(width, pf.x + pf.w)) * 4);
+        }
+      } else if (pf.disposal === 3 && restore) {
+        pixels.data.set(restore);
+      }
+    }
+    const f = frames[++shown];
+    restore = f.disposal === 3 ? pixels.data.slice() : null;
+    const idx = gifIndices(gif, f);
+    const d = pixels.data, t = f.table, colours = t.length / 3;
+    for (let y = 0; y < f.h; y++) {
+      const sy = f.y + y;
+      if (sy >= height) break;
+      for (let x = 0; x < f.w; x++) {
+        const sx = f.x + x;
+        if (sx >= width) break;
+        const c = idx[y * f.w + x];
+        if (c === f.transparent || c >= colours) continue;
+        const o = (sy * width + sx) * 4;
+        d[o] = t[c * 3];
+        d[o + 1] = t[c * 3 + 1];
+        d[o + 2] = t[c * 3 + 2];
+        d[o + 3] = 255;
+      }
+    }
+  };
+  return {
+    kind: frames.length > 1 ? 'animation' : 'photo', width, height, count: frames.length,
+    async frame(i) {
+      if (i < shown) reset();
+      while (shown < i) step();
+      ctx.putImageData(pixels, 0, 0);
+      const delay = frames[i].delay;
+      return {image: canvas, delay: delay > 10 ? delay : 100};  // browsers treat 0-10 ms as 100 ms
+    },
+    close() {},
+  };
+}
+
+// Animated WebP/PNG/AVIF via the browser's ImageDecoder (Chrome, newer Firefox).
 async function decoderSource(file) {
   const dec = new ImageDecoder({data: await file.arrayBuffer(), type: file.type});
   await dec.tracks.ready;
@@ -421,44 +1313,534 @@ async function decoderSource(file) {
   };
 }
 
+// Moves a paused video to time t and waits until that frame is actually on
+// the video element. Some browsers (Chrome on Android especially) fire "seeked"
+// before the decoder has delivered the new frame, so grabbing it straight
+// away gives an older frame or a half-decoded one (blocky smears). The frame
+// callback fires once the new frame is there; if the frame doesn't change
+// (same frame as before) it never comes, so don't wait long for it.
+function seekVideo(v, t) {
+  return new Promise((resolve) => {
+    const hasCallback = 'requestVideoFrameCallback' in v;
+    let seeked = false, framed = !hasCallback, finished = false, wait = null;
+    const finish = () => {
+      if (finished) return;
+      finished = true;
+      clearTimeout(wait);
+      clearTimeout(giveUp);
+      // One more frame's time so the picture is fully settled.
+      setTimeout(resolve, hasCallback ? 0 : 60);
+    };
+    const giveUp = setTimeout(finish, 3000);
+    v.addEventListener('seeked', () => {
+      seeked = true;
+      if (framed) finish();
+      else wait = setTimeout(finish, 350);
+    }, {once: true});
+    // Only count a frame from around the new time (not one still arriving
+    // from before the seek).
+    const onFrame = (now, meta) => {
+      if (finished) return;
+      if (Math.abs(meta.mediaTime - t) > 0.25) {
+        v.requestVideoFrameCallback(onFrame);
+        return;
+      }
+      framed = true;
+      if (seeked) finish();
+    };
+    if (hasCallback) v.requestVideoFrameCallback(onFrame);
+    v.currentTime = t;
+  });
+}
+
 function videoSource(file) {
   return new Promise((resolve, reject) => {
     const v = document.createElement('video');
     v.muted = true;
     v.playsInline = true;
     v.preload = 'auto';
+    let settled = false;
+    const fail = (msg) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(nudge);
+      clearTimeout(timeout);
+      URL.revokeObjectURL(v.src);
+      reject(new Error(msg));
+    };
+    const unsupported = "This browser can't play this video format. Try an MP4 or WebM video.";
     v.onloadeddata = () => {
+      if (settled) return;
+      if (!v.videoWidth || !v.videoHeight || !isFinite(v.duration)) {
+        fail(unsupported);
+        return;
+      }
+      settled = true;
+      clearTimeout(nudge);
+      clearTimeout(timeout);
+      v.pause();
       const src = {
-        kind: 'video', video: v, width: v.videoWidth, height: v.videoHeight,
+        kind: 'video', timed: true, video: v, width: v.videoWidth, height: v.videoHeight,
         duration: v.duration,
         get count() { return Math.max(1, Math.min(MAX_FRAMES, Math.floor(Math.min(this.duration, +$('maxLen').value) * +$('fps').value))); },
         async frame(i) {
           const fps = +$('fps').value;
           v.pause();
-          await new Promise((ok) => { v.onseeked = ok; v.currentTime = Math.min(this.duration - 0.01, (i + 0.5) / fps); });
+          await seekVideo(v, Math.min(this.duration - 0.01, (i + 0.5) / fps));
           return {image: v, delay: 1000 / fps};
         },
         close() { v.pause(); URL.revokeObjectURL(v.src); },
       };
       resolve(src);
     };
-    v.onerror = () => reject(new Error("This video format can't be read here (try MP4)"));
+    v.onerror = () => fail(unsupported);
+    // Some mobile browsers (Firefox on Android) don't load a video until it
+    // has been played, so give it a nudge if nothing has arrived yet.
+    const nudge = setTimeout(() => v.play().then(() => { if (!settled) v.pause(); }).catch(() => {}), 1500);
+    const timeout = setTimeout(() => fail(unsupported), 15000);
     v.src = URL.createObjectURL(file);
+    v.load();
   });
 }
 
-async function loadSource(file) {
-  if (file.type.startsWith('video/')) return videoSource(file);
-  if (/gif|webp|png|avif/.test(file.type)) {
-    if ('ImageDecoder' in window) {
-      try {
-        const s = await decoderSource(file);
-        if (s.count > 1) return s;
-        s.close();
-      } catch (e) { /* fall back to a still */ }
-    } else if (file.type === 'image/gif') {
-      toast("This browser can't read GIF animations - using the first frame. Try Chrome, or send a video.", 5000);
+// ---- phone videos in browsers that can't play HEVC (Firefox)
+// Most phone cameras record HEVC (H.265). Where the browser can't play it, the
+// page reads the MP4 itself and decodes the frames with a WebAssembly HEVC
+// decoder that the emblem serves (/hevc.js, /hevc.wasm).
+
+async function readBytes(file, pos, len) {
+  return new Uint8Array(await file.slice(pos, pos + len).arrayBuffer());
+}
+
+// Finds the video track of an MP4 / MOV and indexes its samples.
+async function mp4Info(file) {
+  // Top-level boxes: find moov without reading the (big) media data.
+  let pos = 0, moov = null;
+  while (pos + 8 <= file.size) {
+    const h = await readBytes(file, pos, 16);
+    const dv = new DataView(h.buffer);
+    let size = dv.getUint32(0);
+    const type = String.fromCharCode(h[4], h[5], h[6], h[7]);
+    if (size === 1) size = Number(dv.getBigUint64(8));
+    else if (size === 0) size = file.size - pos;
+    if (size < 8) throw new Error('Not an MP4');
+    if (type === 'moov') {
+      moov = await readBytes(file, pos, size);
+      break;
     }
+    pos += size;
+  }
+  if (!moov) throw new Error('Not an MP4');
+  const dv = new DataView(moov.buffer);
+  const str = (p) => String.fromCharCode(moov[p], moov[p + 1], moov[p + 2], moov[p + 3]);
+  // Children of the box whose payload runs from start to end.
+  const boxes = (start, end) => {
+    const out = {};
+    for (let p = start; p + 8 <= end;) {
+      let size = dv.getUint32(p), head = 8;
+      if (size === 1) { size = Number(dv.getBigUint64(p + 8)); head = 16; }
+      if (size < 8) break;
+      const t = str(p + 4);
+      (out[t] = out[t] || []).push({start: p + head, end: Math.min(end, p + size)});
+      p += size;
+    }
+    return out;
+  };
+  const top = boxes(8, moov.length);
+  for (const trak of top.trak || []) {
+    const tb = boxes(trak.start, trak.end);
+    if (!tb.mdia) continue;
+    const mdia = boxes(tb.mdia[0].start, tb.mdia[0].end);
+    if (!mdia.hdlr || str(mdia.hdlr[0].start + 8) !== 'vide' || !mdia.minf) continue;
+    const mdhd = mdia.mdhd[0].start;
+    const timescale = dv.getUint32(mdhd + (moov[mdhd] === 1 ? 20 : 12));
+    const minf = boxes(mdia.minf[0].start, mdia.minf[0].end);
+    const stbl = boxes(minf.stbl[0].start, minf.stbl[0].end);
+    const get = (t) => stbl[t] && stbl[t][0].start;
+
+    // Sample description: codec and decoder set-up.
+    const entry = get('stsd') + 8;
+    const codec = str(entry + 4);
+    const info = {codec, timescale, rotation: 0};
+    const entryBoxes = boxes(entry + 8 + 78, entry + dv.getUint32(entry));
+    // Colour description (HDR videos: BT.2020 with PQ or HLG).
+    if (entryBoxes.colr) {
+      const c = entryBoxes.colr[0].start;
+      if (str(c) === 'nclx') {
+        info.colour = {primaries: dv.getUint16(c + 4), transfer: dv.getUint16(c + 6),
+          matrix: dv.getUint16(c + 8), full: !!(moov[c + 10] & 0x80)};
+      }
+    }
+    if (codec === 'hvc1' || codec === 'hev1') {
+      const cfg = entryBoxes.hvcC;
+      if (!cfg) throw new Error('No hvcC');
+      let p = cfg[0].start;
+      info.lengthSize = (moov[p + 21] & 3) + 1;
+      const arrays = moov[p + 22];
+      p += 23;
+      const params = [];
+      for (let a = 0; a < arrays; a++) {
+        const n = dv.getUint16(p + 1);
+        p += 3;
+        for (let k = 0; k < n; k++) {
+          const len = dv.getUint16(p);
+          params.push(moov.subarray(p + 2, p + 2 + len));
+          p += 2 + len;
+        }
+      }
+      info.params = params;
+    }
+
+    // Rotation from the track matrix (phones store portrait videos turned).
+    const tkhd = tb.tkhd[0].start;
+    const m = tkhd + 4 + (moov[tkhd] === 1 ? 32 : 20) + 16;
+    const ma = dv.getInt32(m), mb = dv.getInt32(m + 4), md = dv.getInt32(m + 16);
+    info.rotation = ma === 0 && mb > 0 ? 90 : ma < 0 && md < 0 ? 180 : ma === 0 && mb < 0 ? 270 : 0;
+
+    // Sample sizes, file offsets and times.
+    let s = get('stsz');
+    const fixed = dv.getUint32(s + 4), count = dv.getUint32(s + 8);
+    const sizes = new Uint32Array(count);
+    for (let i = 0; i < count; i++) sizes[i] = fixed || dv.getUint32(s + 12 + i * 4);
+    const chunks = [];
+    if (get('stco')) {
+      s = get('stco');
+      for (let i = 0, n = dv.getUint32(s + 4); i < n; i++) chunks.push(dv.getUint32(s + 8 + i * 4));
+    } else {
+      s = get('co64');
+      for (let i = 0, n = dv.getUint32(s + 4); i < n; i++) chunks.push(Number(dv.getBigUint64(s + 8 + i * 8)));
+    }
+    const offsets = new Float64Array(count);
+    s = get('stsc');
+    const runs = dv.getUint32(s + 4);
+    for (let r = 0, i = 0; r < runs; r++) {
+      const first = dv.getUint32(s + 8 + r * 12) - 1, per = dv.getUint32(s + 12 + r * 12);
+      const last = r + 1 < runs ? dv.getUint32(s + 8 + (r + 1) * 12) - 1 : chunks.length;
+      for (let c = first; c < last && i < count; c++) {
+        let off = chunks[c];
+        for (let k = 0; k < per && i < count; k++, i++) {
+          offsets[i] = off;
+          off += sizes[i];
+        }
+      }
+    }
+    const times = new Float64Array(count);
+    s = get('stts');
+    for (let r = 0, i = 0, t = 0, n = dv.getUint32(s + 4); r < n; r++) {
+      const c = dv.getUint32(s + 8 + r * 8), d = dv.getUint32(s + 12 + r * 8);
+      for (let k = 0; k < c && i < count; k++, i++, t += d) times[i] = t;
+    }
+    if (get('ctts')) {
+      s = get('ctts');
+      const signed = moov[s] === 1;
+      for (let r = 0, i = 0, n = dv.getUint32(s + 4); r < n; r++) {
+        const c = dv.getUint32(s + 8 + r * 8);
+        const o = signed ? dv.getInt32(s + 12 + r * 8) : dv.getUint32(s + 12 + r * 8);
+        for (let k = 0; k < c && i < count; k++, i++) times[i] += o;
+      }
+    }
+    // Presentation times in seconds, in display order, from the first frame.
+    const pts = Array.from(times).sort((a, b) => a - b);
+    info.pts = pts.map((t) => (t - pts[0]) / timescale);
+    const last = pts.length > 1 ? pts[pts.length - 1] - pts[pts.length - 2] : timescale / 30;
+    info.duration = (pts[pts.length - 1] - pts[0] + last) / timescale;
+    Object.assign(info, {count, sizes, offsets});
+    return info;
+  }
+  throw new Error('No video track');
+}
+
+let hevcModule = null;
+function loadHevcModule() {
+  if (!hevcModule) {
+    hevcModule = new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = '/hevc.js';
+      s.onload = () => HEVCDecoderModule({locateFile: () => '/hevc.wasm'}).then(resolve, reject);
+      s.onerror = () => reject(new Error("Couldn't load the video decoder from the emblem"));
+      document.head.appendChild(s);
+    }).catch((e) => { hevcModule = null; throw e; });
+  }
+  return hevcModule;
+}
+
+// Thin wrapper over the WebAssembly decoder (see web/vendor/hevc).
+function hevcDecoder(m) {
+  const dec = m._hevc_decoder_create();
+  if (!dec) throw new Error("Couldn't start the video decoder");
+  const fp = m._malloc(48), np = m._malloc(4);
+  const plane = (ptr, w, h, stride) => {
+    const out = new Uint16Array(w * h), base = ptr >> 1, heap = m.HEAPU16;
+    for (let y = 0; y < h; y++) out.set(heap.subarray(base + y * stride, base + y * stride + w), y * w);
+    return out;
+  };
+  const read = () => {
+    const g = (o) => m.getValue(fp + o, 'i32');
+    const w = g(12), h = g(16), cw = g(28), ch = g(32);
+    return {y: plane(g(0), w, h, g(20)), cb: plane(g(4), cw, ch, g(24)), cr: plane(g(8), cw, ch, g(24)),
+      width: w, height: h, chromaWidth: cw, chromaHeight: ch, bitDepth: g(36)};
+  };
+  return {
+    feed(data) {
+      const p = m._malloc(data.length);
+      m.HEAPU8.set(data, p);
+      const r = m._hevc_decoder_feed(dec, p, data.length);
+      m._free(p);
+      if (r !== 0) throw new Error("This video couldn't be decoded");
+    },
+    drain() {
+      if (m._hevc_decoder_drain(dec, np) !== 0) return [];
+      const out = [];
+      for (let i = 0, n = m.getValue(np, 'i32'); i < n; i++) {
+        if (m._hevc_decoder_get_drained_frame(dec, i, fp) === 0) out.push(read());
+      }
+      return out;
+    },
+    flush() {
+      if (m._hevc_decoder_flush(dec) !== 0) return [];
+      const out = [];
+      for (let i = 0; m._hevc_decoder_get_drained_frame(dec, i, fp) === 0; i++) out.push(read());
+      return out;
+    },
+    destroy() { m._hevc_decoder_destroy(dec); m._free(fp); m._free(np); },
+  };
+}
+
+// Length-prefixed NAL units (MP4) -> start codes (what the decoder reads).
+function annexB(sample, lengthSize) {
+  const parts = [];
+  let total = 0;
+  for (let p = 0; p + lengthSize <= sample.length;) {
+    let len = 0;
+    for (let k = 0; k < lengthSize; k++) len = len * 256 + sample[p + k];
+    p += lengthSize;
+    const nal = sample.subarray(p, p + len);
+    parts.push(nal);
+    total += 4 + nal.length;
+    p += len;
+  }
+  const out = new Uint8Array(total);
+  let o = 0;
+  for (const nal of parts) {
+    out[o + 3] = 1;
+    out.set(nal, o + 4);
+    o += 4 + nal.length;
+  }
+  return out;
+}
+
+// Colour conversion for a video: YUV matrix, range, and for HDR videos a
+// tone map to normal (SDR) colours, as lookup tables.
+function colourConverter(colour, bitDepth) {
+  const c = colour || {};
+  const matrix = c.matrix || (bitDepth > 8 ? 9 : 1);  // 9 = BT.2020, 1 = BT.709
+  const [kr, kb] = matrix === 9 ? [0.2627, 0.0593] : (matrix === 5 || matrix === 6) ? [0.299, 0.114] : [0.2126, 0.0722];
+  const max = (1 << bitDepth) - 1, scale = 1 << (bitDepth - 8);
+  const yOff = c.full ? 0 : 16 * scale, yRange = c.full ? max : 219 * scale;
+  const cRange = c.full ? max : 224 * scale, cMid = 128 * scale;
+  const transfer = c.transfer || 1;
+  const hdr = transfer === 16 || transfer === 18;  // PQ, HLG
+  const conv = {kr, kb, kg: 1 - kr - kb, yOff, yRange, cMid, cRange, hdr};
+  if (!hdr) return conv;
+
+  // Non-linear R'G'B' -> linear light, 1.0 = SDR reference white (203 nits).
+  const N = 4096;
+  const toLinear = new Float32Array(N);
+  for (let i = 0; i < N; i++) {
+    const v = i / (N - 1);
+    let nits;
+    if (transfer === 16) {  // PQ (SMPTE 2084)
+      const e = Math.pow(v, 1 / 78.84375);
+      nits = 10000 * Math.pow(Math.max(e - 0.8359375, 0) / (18.8515625 - 18.6875 * e), 1 / 0.1593017578125);
+    } else {  // HLG, shown on a 1000-nit display
+      const a = 0.17883277, b = 0.28466892, cc = 0.55991073;
+      const scene = v <= 0.5 ? v * v / 3 : (Math.exp((v - cc) / a) + b) / 12;
+      nits = 1000 * Math.pow(scene, 1.2);
+    }
+    toLinear[i] = nits / 203;
+  }
+  // Linear -> 8-bit sRGB.
+  const toSrgb = new Uint8Array(N);
+  for (let i = 0; i < N; i++) {
+    const v = i / (N - 1);
+    toSrgb[i] = Math.round(255 * (v <= 0.0031308 ? 12.92 * v : 1.055 * Math.pow(v, 1 / 2.4) - 0.055));
+  }
+  // BT.2020 -> BT.709 primaries.
+  const wide = (c.primaries || 9) === 9;
+  conv.m = wide ? [1.6605, -0.5876, -0.0728, -0.1246, 1.1329, -0.0083, -0.0182, -0.1006, 1.1187] : [1, 0, 0, 0, 1, 0, 0, 0, 1];
+  conv.toLinear = toLinear;
+  conv.toSrgb = toSrgb;
+  return conv;
+}
+
+// Tone curve: unchanged up to 0.7, then rolls off smoothly towards white.
+function toneMap(l) {
+  const k = 0.7;
+  return l <= k ? l : k + (1 - k) * (1 - Math.exp(-(l - k) / (1 - k)));
+}
+
+// YUV frame -> RGB canvas, turned upright. 4K is halved (plenty for 480x480).
+function yuvToCanvas(f, info, canvas) {
+  const rotation = info.rotation;
+  const cv = info.conv || (info.conv = colourConverter(info.colour, f.bitDepth));
+  const step = Math.max(1, Math.floor(Math.min(f.width, f.height) / 1080));
+  const w = Math.floor(f.width / step), h = Math.floor(f.height / step);
+  const turned = rotation === 90 || rotation === 270;
+  canvas.width = turned ? h : w;
+  canvas.height = turned ? w : h;
+  const ctx = canvas.getContext('2d');
+  const img = ctx.createImageData(canvas.width, canvas.height);
+  const d = img.data, cw = canvas.width;
+  const cx = f.chromaWidth / f.width, cy = f.chromaHeight / f.height;
+  const {kr, kb, kg, yOff, yRange, cMid, cRange, hdr} = cv;
+  const rv = 2 * (1 - kr), bu = 2 * (1 - kb);
+  const L = 4095, lin = cv.toLinear, srgb = cv.toSrgb, m = cv.m;
+  const q = (v) => lin[v <= 0 ? 0 : v >= 1 ? L : (v * L + 0.5) | 0];
+  for (let y = 0; y < h; y++) {
+    const sy = y * step;
+    const yRow = sy * f.width, cRow = Math.floor(sy * cy) * f.chromaWidth;
+    for (let x = 0; x < w; x++) {
+      const sx = x * step;
+      const Y = (f.y[yRow + sx] - yOff) / yRange;
+      const ci = cRow + Math.floor(sx * cx);
+      const U = (f.cb[ci] - cMid) / cRange, V = (f.cr[ci] - cMid) / cRange;
+      let r = Y + rv * V, b = Y + bu * U;
+      let g = (Y - kr * r - kb * b) / kg;
+      let dx = x, dy = y;
+      if (rotation === 90) { dx = h - 1 - y; dy = x; }
+      else if (rotation === 180) { dx = w - 1 - x; dy = h - 1 - y; }
+      else if (rotation === 270) { dx = y; dy = w - 1 - x; }
+      const o = (dy * cw + dx) * 4;
+      if (hdr) {
+        const lr = q(r), lg = q(g), lb = q(b);
+        r = m[0] * lr + m[1] * lg + m[2] * lb;
+        g = m[3] * lr + m[4] * lg + m[5] * lb;
+        b = m[6] * lr + m[7] * lg + m[8] * lb;
+        // Tone map on brightness so colours keep their hue.
+        const l = Math.max(r, g, b);
+        const k = l > 0 ? toneMap(l) / l : 0;
+        r *= k; g *= k; b *= k;
+        d[o] = srgb[r <= 0 ? 0 : r >= 1 ? L : (r * L + 0.5) | 0];
+        d[o + 1] = srgb[g <= 0 ? 0 : g >= 1 ? L : (g * L + 0.5) | 0];
+        d[o + 2] = srgb[b <= 0 ? 0 : b >= 1 ? L : (b * L + 0.5) | 0];
+      } else {
+        d[o] = r * 255;
+        d[o + 1] = g * 255;
+        d[o + 2] = b * 255;
+      }
+      d[o + 3] = 255;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+}
+
+async function hevcSource(file, info) {
+  const m = await loadHevcModule();
+  const canvas = document.createElement('canvas');
+  let dec = null, next = 0, out = 0, queue = [], done = true;
+  let cur = null, ahead = null, shownPts = -1;
+  const restart = () => {
+    if (dec) dec.destroy();
+    dec = hevcDecoder(m);
+    // Parameter sets (VPS, SPS, PPS) from the MP4 header, with start codes.
+    const params = new Uint8Array(info.params.reduce((n, p) => n + 4 + p.length, 0));
+    let o = 0;
+    for (const p of info.params) {
+      params[o + 3] = 1;
+      params.set(p, o + 4);
+      o += 4 + p.length;
+    }
+    dec.feed(params);
+    next = out = 0;
+    queue = [];
+    done = false;
+    cur = ahead = null;
+    shownPts = -1;
+  };
+  // Next decoded frame in display order, with its time.
+  const nextFrame = async () => {
+    while (!queue.length && !done) {
+      if (next < info.count) {
+        const sample = await readBytes(file, info.offsets[next], info.sizes[next]);
+        next++;
+        dec.feed(annexB(sample, info.lengthSize));
+        queue.push(...dec.drain());
+      } else {
+        queue.push(...dec.flush());
+        done = true;
+      }
+    }
+    const f = queue.shift();
+    if (f) f.pts = info.pts[Math.min(out++, info.pts.length - 1)];
+    return f || null;
+  };
+  // Draws the frame showing at time t (frames are decoded in order, so going
+  // back means starting again).
+  const at = async (t) => {
+    if (!dec || (cur && t < cur.pts)) restart();
+    for (;;) {
+      if (!ahead) ahead = await nextFrame();
+      if (!ahead || ahead.pts > t) break;
+      cur = ahead;
+      ahead = null;
+    }
+    if (!cur) { cur = ahead; ahead = null; }
+    if (!cur) throw new Error("This video couldn't be decoded");
+    if (cur.pts !== shownPts) {
+      yuvToCanvas(cur, info, canvas);
+      shownPts = cur.pts;
+    }
+  };
+  let busy = Promise.resolve();
+  const src = {
+    kind: 'clip', timed: true, sequential: true, width: 0, height: 0, duration: info.duration,
+    get count() { return Math.max(1, Math.min(MAX_FRAMES, Math.floor(Math.min(this.duration, +$('maxLen').value) * +$('fps').value))); },
+    frame(i) {
+      const fps = +$('fps').value;
+      // One at a time: the preview and the upload share the decoder.
+      const job = busy.then(async () => {
+        await at(Math.min(this.duration - 0.001, (i + 0.5) / fps));
+        return {image: canvas, delay: 1000 / fps};
+      });
+      busy = job.catch(() => {});
+      return job;
+    },
+    close() { busy.then(() => { if (dec) dec.destroy(); dec = null; }); },
+  };
+  await src.frame(0);
+  src.width = canvas.width;
+  src.height = canvas.height;
+  return src;
+}
+
+async function loadSource(file) {
+  if (file.type.startsWith('video/') || /\.(mp4|mov|m4v)$/i.test(file.name)) {
+    let info = null;
+    try { info = await mp4Info(file); } catch (e) { /* not an MP4: let the browser try */ }
+    const hevc = info && (info.codec === 'hvc1' || info.codec === 'hev1');
+    const canPlay = document.createElement('video').canPlayType('video/mp4; codecs="hvc1.1.6.L93.B0"');
+    if (hevc && !canPlay) {
+      toast('Reading video…', 3000);
+      return hevcSource(file, info);
+    }
+    try {
+      return await videoSource(file);
+    } catch (e) {
+      if (hevc) return hevcSource(file, info);
+      throw e;
+    }
+  }
+  if (file.type === 'image/gif') {
+    try {
+      const s = await gifSource(file);
+      if (s.count > 1) return s;
+    } catch (e) { /* fall back to a still */ }
+  } else if (/webp|png|avif/.test(file.type) && 'ImageDecoder' in window) {
+    try {
+      const s = await decoderSource(file);
+      if (s.count > 1) return s;
+      s.close();
+    } catch (e) { /* fall back to a still */ }
   }
   return stillSource(file);
 }
@@ -581,7 +1963,9 @@ async function encodeAnimation(src, canvas) {
   // Size up a few sample frames first so big clips usually need one pass.
   if (count > 12) {
     let sample = 0;
-    const picks = [0, 0.25, 0.5, 0.75, 0.95].map((f) => Math.floor(f * (count - 1)));
+    // Sources that decode in order (phone videos in Firefox) are sized up
+    // from their first frames rather than decoding the whole clip twice.
+    const picks = src.sequential ? [0, 1, 2] : [0, 0.25, 0.5, 0.75, 0.95].map((f) => Math.floor(f * (count - 1)));
     for (const i of picks) {
       drawCrop(ctx, (await src.frame(i)).image);
       sample += (await toBlob(canvas, 'image/jpeg', quality)).size + 8;
@@ -637,9 +2021,9 @@ function setupPictures() {
     }
     Object.assign(crop, {zoom: 1, rot: 0, dx: 0, dy: 0});
     $('zoom').value = 100;
-    $('fpsRow').classList.toggle('hidden', crop.src.kind !== 'video');
-    $('lenRow').classList.toggle('hidden', crop.src.kind !== 'video');
-    if (crop.src.kind === 'video') {
+    $('fpsRow').classList.toggle('hidden', !crop.src.timed);
+    $('lenRow').classList.toggle('hidden', !crop.src.timed);
+    if (crop.src.timed) {
       $('maxLen').max = Math.max(1, Math.ceil(Math.min(crop.src.duration, 60)));
       $('maxLen').value = Math.min(+$('maxLen').value, +$('maxLen').max);
       $('lenOut').textContent = $('maxLen').value + ' s';
@@ -693,6 +2077,10 @@ function setupPictures() {
     thumb.width = thumb.height = 96;
     $('upload').disabled = true;
     crop.preview = null;  // pause the preview while encoding
+    if (src.kind === 'video') {
+      src.video.pause();
+      await sleep(100);  // let a frame that was on its way from playback arrive first
+    }
     try {
       Object.assign(st, await api('/api/state'));  // current free space
       const form = new FormData();
@@ -735,53 +2123,14 @@ function setupPictures() {
   };
 }
 
-// ---------------------------------------------------------------- system
-
-function setupSystem() {
-  $('saveWifi').onclick = async () => {
-    const body = new URLSearchParams({apSsid: $('apSsid').value, staSsid: $('staSsid').value});
-    if ($('apPass').value) body.append('apPass', $('apPass').value);
-    if ($('staPass').value || !$('staSsid').value) body.append('staPass', $('staPass').value);
-    try {
-      toast(await api('/api/wifi', body), 5000);
-      setOnline(false, 'Restarting…');
-      setTimeout(loadState, 6000);
-    } catch (e) { toast(e.message, 5000); }
-  };
-  $('savePanel').onclick = async () => {
-    try {
-      toast(await api('/api/panel', new URLSearchParams({panel: $('panel').value})), 5000);
-      setOnline(false, 'Restarting…');
-      setTimeout(loadState, 7000);
-    } catch (e) { toast(e.message, 5000); }
-  };
-  $('testColours').onclick = async () => {
-    try { toast(await api('/api/test', new URLSearchParams()), 3000); } catch (e) { toast(e.message, 4000); }
-  };
-  $('reboot').onclick = async () => {
-    try { await api('/api/reboot', new URLSearchParams()); } catch (e) {}
-    setOnline(false, 'Restarting…');
-    setTimeout(loadState, 6000);
-  };
-  $('flash').onclick = async () => {
-    const f = $('fw').files[0];
-    if (!f) { toast('Choose a firmware .bin first'); return; }
-    const form = new FormData();
-    form.append('firmware', f, f.name);
-    toast('Updating… keep the phone close', 60000);
-    try {
-      toast(await api('/update', form), 5000);
-      setOnline(false, 'Restarting…');
-      setTimeout(loadState, 8000);
-    } catch (e) { toast('Update failed: ' + e.message, 5000); }
-  };
-}
 
 // ---------------------------------------------------------------- preview
 // Mirrors src/renderer.cpp closely enough to see what the emblem will look like.
 
 const C = 240;
-const LABEL_BASE = 165, LABEL_SCALE = 7, LABEL_STROKE = 1.5;
+const R_RING = 231, R_INNER_RIM = 158, R_DISC = 151;
+const LABEL_MID = 194, LABEL_CAP = 55;
+const LABEL_FONT = 'bold 100px Arial, "Liberation Sans", Helvetica, sans-serif';
 const thumbCache = {};
 
 function layout(text, tracking) {
@@ -820,17 +2169,15 @@ function strokePaths(ctx, strokes, map) {
   ctx.stroke();
 }
 
-function chromeFill(ctx, color) {
-  const g = ctx.createLinearGradient(40, 40, 440, 440);
-  g.addColorStop(0, '#ffffff');
-  g.addColorStop(0.3, color);
-  g.addColorStop(1, shade(color, 0.45));
-  return g;
-}
-
 function shade(hex, f) {
   const n = parseInt(hex.slice(1), 16);
-  const c = (v) => Math.round(Math.min(255, v * f)).toString(16).padStart(2, '0');
+  const c = (v) => Math.round(Math.max(0, Math.min(255, v * f))).toString(16).padStart(2, '0');
+  return '#' + c(n >> 16) + c((n >> 8) & 255) + c(n & 255);
+}
+
+function lighten(hex, t) {
+  const n = parseInt(hex.slice(1), 16);
+  const c = (v) => Math.round(v + (255 - v) * t).toString(16).padStart(2, '0');
   return '#' + c(n >> 16) + c((n >> 8) & 255) + c(n & 255);
 }
 
@@ -841,36 +2188,130 @@ function circle(ctx, r, fill) {
   ctx.fill();
 }
 
+// Chrome band between r0 and r1: bright upper-left, dark lower-right.
+function chromeRing(ctx, r0, r1, color) {
+  const g = ctx.createLinearGradient(C - r1 * 0.7, C - r1 * 0.7, C + r1 * 0.7, C + r1 * 0.7);
+  g.addColorStop(0, '#ffffff');
+  g.addColorStop(0.25, shade(color, 1.1));
+  g.addColorStop(0.55, shade(color, 0.55));
+  g.addColorStop(0.8, shade(color, 0.9));
+  g.addColorStop(1, shade(color, 0.35));
+  ctx.beginPath();
+  ctx.arc(C, C, r1, 0, Math.PI * 2);
+  ctx.arc(C, C, r0, 0, Math.PI * 2, true);
+  ctx.fillStyle = g;
+  ctx.fill();
+}
+
 function drawRoundel(ctx, phi) {
   const off = st.angle * Math.PI / 180;
-  circle(ctx, 239.5, chromeFill(ctx, st.rim));
-  circle(ctx, 232, st.ring);
-  const t = layout(st.labelText, st.spacing);
-  const mid = LABEL_BASE + 4 * LABEL_SCALE;
-  ctx.strokeStyle = st.label;
-  ctx.lineWidth = LABEL_STROKE * LABEL_SCALE;
-  ctx.lineCap = ctx.lineJoin = 'round';
-  strokePaths(ctx, t.strokes, (u, v) => {
-    const a = (u - t.width / 2) * LABEL_SCALE / mid + off;
-    const r = LABEL_BASE + v * LABEL_SCALE;
-    return [C + r * Math.sin(a), C - r * Math.cos(a)];
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, 480, 480);
+  chromeRing(ctx, R_RING - 1, 239.5, st.rim);
+  // Glossy black ring: soft reflection over the top.
+  const rg = ctx.createLinearGradient(0, C - R_RING, 0, C + R_RING);
+  rg.addColorStop(0, lighten(st.ring, 0.15));
+  rg.addColorStop(0.45, st.ring);
+  rg.addColorStop(1, st.ring);
+  circle(ctx, R_RING, rg);
+  // Upright bold letters spread evenly around the top (as in the firmware).
+  ctx.save();
+  ctx.font = LABEL_FONT;
+  const capPx = 100 * 0.716;  // Arial / Helvetica Bold cap height at 100px
+  const chars = [...st.labelText.toUpperCase()].slice(0, 16);
+  const deg = Math.PI / 180;
+  let sc = LABEL_CAP / capPx;
+  const maxAdv = Math.max(1, ...chars.map((ch) => ctx.measureText(ch).width));
+  const minStep = maxAdv * sc / LABEL_MID + 2 * deg;
+  let step = Math.max((22 + st.spacing * 2.2) * deg, minStep);
+  if (chars.length > 1 && (chars.length - 1) * step > 300 * deg) step = 300 * deg / (chars.length - 1);
+  if (step < minStep) sc *= (step - 2 * deg) / (minStep - 2 * deg);
+  const base = LABEL_MID - capPx * sc / 2;
+  const lg = ctx.createLinearGradient(0, 0, 0, -capPx);
+  lg.addColorStop(0, shade(st.label, 0.84));
+  lg.addColorStop(0.75, st.label);
+  ctx.fillStyle = lg;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'alphabetic';
+  chars.forEach((ch, i) => {
+    const a = (i - (chars.length - 1) / 2) * step + off;
+    ctx.save();
+    ctx.translate(C + base * Math.sin(a), C - base * Math.cos(a));
+    ctx.rotate(a);
+    ctx.scale(sc, sc);
+    ctx.fillText(ch, 0, 0);
+    ctx.restore();
   });
-  circle(ctx, 156, chromeFill(ctx, st.rim));
+  ctx.restore();
+  chromeRing(ctx, R_DISC - 1, R_INNER_RIM, st.rim);
   // Quarter A is top-left / bottom-right, turned clockwise by phi.
   for (let q = 0; q < 4; q++) {
     ctx.beginPath();
     ctx.moveTo(C, C);
     const start = Math.PI + q * Math.PI / 2 + phi;
-    ctx.arc(C, C, 150, start, start + Math.PI / 2);
+    ctx.arc(C, C, R_DISC, start, start + Math.PI / 2);
     ctx.closePath();
     ctx.fillStyle = q % 2 === 0 ? st.quadA : st.quadB;
     ctx.fill();
   }
+  // Lighter top left, darker bottom right, soft gloss.
+  const k = R_DISC * 0.7071;
+  const light = ctx.createLinearGradient(C - k, C - k, C + k, C + k);
+  light.addColorStop(0, 'rgba(255,255,255,.16)');
+  light.addColorStop(0.5, 'rgba(255,255,255,0)');
+  light.addColorStop(0.5, 'rgba(0,0,0,0)');
+  light.addColorStop(1, 'rgba(0,0,0,.2)');
+  circle(ctx, R_DISC, light);
+  const edge = ctx.createRadialGradient(C, C, R_DISC * 0.85, C, C, R_DISC);
+  edge.addColorStop(0, 'rgba(0,0,0,0)');
+  edge.addColorStop(1, 'rgba(0,0,0,.12)');
+  circle(ctx, R_DISC, edge);
+  // Thin lines between the quarters.
+  ctx.save();
+  ctx.translate(C, C);
+  ctx.rotate(phi);
+  ctx.strokeStyle = shade(st.rim, 0.8);
+  ctx.lineWidth = 1.6;
+  ctx.beginPath();
+  ctx.moveTo(-R_DISC, 0); ctx.lineTo(R_DISC, 0);
+  ctx.moveTo(0, -R_DISC); ctx.lineTo(0, R_DISC);
+  ctx.stroke();
+  ctx.restore();
+}
+
+let carbonPattern = null, carbonFor = '';
+function carbon(ctx) {
+  if (carbonPattern && carbonFor === st.stripeBg) return carbonPattern;
+  const c = document.createElement('canvas');
+  c.width = c.height = 28;
+  const x = c.getContext('2d');
+  for (let ty = 0; ty < 4; ty++) {
+    for (let tx = 0; tx < 4; tx++) {
+      const horiz = ((tx + ty) & 3) < 2;
+      const g = horiz ? x.createLinearGradient(0, ty * 7, 0, ty * 7 + 7) : x.createLinearGradient(tx * 7, 0, tx * 7 + 7, 0);
+      g.addColorStop(0, shade(st.stripeBg, 0.6));
+      g.addColorStop(0.5, shade(st.stripeBg, horiz ? 1.35 : 1.1));
+      g.addColorStop(1, shade(st.stripeBg, 0.6));
+      x.fillStyle = g;
+      x.fillRect(tx * 7, ty * 7, 7, 7);
+    }
+  }
+  carbonPattern = ctx.createPattern(c, 'repeat');
+  carbonFor = st.stripeBg;
+  return carbonPattern;
+}
+
+function vignette(ctx) {
+  const v = ctx.createRadialGradient(C, C, 120, C, C, 245);
+  v.addColorStop(0, 'rgba(0,0,0,0)');
+  v.addColorStop(1, 'rgba(0,0,0,.45)');
+  ctx.fillStyle = v;
+  ctx.fillRect(0, 0, 480, 480);
 }
 
 function drawStripes(ctx, offset, repeat) {
   const w = 58;
-  ctx.fillStyle = st.stripeBg;
+  ctx.fillStyle = carbon(ctx);
   ctx.fillRect(0, 0, 480, 480);
   ctx.save();
   ctx.translate(C, C);
@@ -880,23 +2321,43 @@ function drawStripes(ctx, offset, repeat) {
   const first = repeat ? Math.floor((-400 - offset) / period) : 0;
   const last = repeat ? Math.ceil((400 - offset) / period) : 0;
   for (let p = first; p <= last; p++) {
+    const q0 = repeat ? offset + p * period : -1.5 * w;
+    ctx.fillStyle = 'rgba(0,0,0,.45)';
+    ctx.fillRect(q0 - 12, -400, 3 * w + 24, 800);
     for (let i = 0; i < 3; i++) {
-      const q = repeat ? offset + p * period + i * w : (i - 1.5) * w;
-      ctx.fillStyle = cols[i];
+      const q = q0 + i * w;
+      const g = ctx.createLinearGradient(q, 0, q + w, 0);
+      g.addColorStop(0, shade(cols[i], 0.75));
+      g.addColorStop(0.5, shade(cols[i], 1.08));
+      g.addColorStop(1, shade(cols[i], 0.75));
+      ctx.fillStyle = g;
       ctx.fillRect(q, -400, w + 0.5, 800);
     }
   }
   ctx.restore();
+  vignette(ctx);
 }
 
 function drawTextMode(ctx, text, fg, bg) {
-  ctx.fillStyle = bg;
+  const bgG = ctx.createRadialGradient(C, C, 0, C, C, 240);
+  bgG.addColorStop(0, shade(bg, 1.1) === '#000000' ? '#161616' : shade(bg, 1.1));
+  bgG.addColorStop(1, shade(bg, 0.65));
+  ctx.fillStyle = bgG;
   ctx.fillRect(0, 0, 480, 480);
   const lines = text.split('|').slice(0, 4).map((l) => layout(l, 2));
   const maxW = Math.max(1, ...lines.map((l) => l.width));
   const totalH = lines.length * 8 + (lines.length - 1) * 5;
-  const sc = Math.min(340 / (maxW + 1.35), 300 / totalH, 20);
-  ctx.strokeStyle = fg;
+  const sc = Math.min(330 / (maxW + 1.35), 290 / totalH, 20);
+  const top = C - totalH * sc / 2, bottom = C + totalH * sc / 2;
+  const fg2 = ctx.createLinearGradient(0, top, 0, bottom);
+  fg2.addColorStop(0, shade(fg, 1.3));
+  fg2.addColorStop(1, shade(fg, 0.72));
+  ctx.save();
+  ctx.shadowColor = 'rgba(0,0,0,.85)';
+  ctx.shadowBlur = sc * 0.8;
+  ctx.shadowOffsetX = sc * 0.3;
+  ctx.shadowOffsetY = sc * 0.45;
+  ctx.strokeStyle = fg2;
   ctx.lineWidth = 1.35 * sc;
   ctx.lineCap = ctx.lineJoin = 'round';
   lines.forEach((l, i) => {
@@ -904,45 +2365,55 @@ function drawTextMode(ctx, text, fg, bg) {
     const base = C + totalH * sc / 2 - (lines.length - 1 - i) * 13 * sc;
     strokePaths(ctx, l.strokes, (u, v) => [ox + u * sc, base - v * sc]);
   });
+  ctx.restore();
 }
 
 let phase = 0, last = 0;
 function frame(ts) {
   const dt = last ? Math.min(0.2, (ts - last) / 1000) : 0;
   last = ts;
-  if (st) {
+  if (st && !document.querySelector('.hero').classList.contains('hidden')) {
     const ctx = $('preview').getContext('2d');
     ctx.clearRect(0, 0, 480, 480);
-    ctx.globalAlpha = 1;
     const off = st.angle * Math.PI / 180;
-    if (st.mode === 0) drawRoundel(ctx, off);
-    else if (st.mode === 1) { phase += dt * st.speed / 100 * 2 * Math.PI; drawRoundel(ctx, off + phase); }
-    else if (st.mode === 2) { if (st.speed) phase += dt * st.speed * 1.5; drawStripes(ctx, st.speed ? phase : 0, !!st.speed); }
-    else if (st.mode === 3) {
-      let lvl = 1;
-      if (st.speed) { phase += dt * Math.abs(st.speed) / 100 * 1.5 * 2 * Math.PI; lvl = 0.25 + 0.75 * (0.5 + 0.5 * Math.sin(phase)); }
-      ctx.fillStyle = shade(st.solid, lvl);
+    const {mode, slot} = previewItem();
+    if (mode === 0) drawRoundel(ctx, off);
+    else if (mode === 1) { phase += dt * st.speed / 100 * 2 * Math.PI; drawRoundel(ctx, off + phase); }
+    else if (mode === 2) { if (st.speed) phase += dt * st.speed * 1.5; drawStripes(ctx, st.speed ? phase : 0, !!st.speed); }
+    // Pictures and text are turned by the rotation too.
+    if (mode >= 3 && off) {
+      ctx.save();
+      ctx.fillStyle = '#000';
       ctx.fillRect(0, 0, 480, 480);
-    } else if (st.mode === 4) {
-      const t = st.slots[st.imageSlot] && getThumb(st.imageSlot);
+      ctx.translate(240, 240);
+      ctx.rotate(off);
+      ctx.translate(-240, -240);
+    }
+    if (mode === 3) {
+      const t = st.slots[slot] && getThumb(slot);
       if (t) {
         if (!thumbCache[t]) { thumbCache[t] = new Image(); thumbCache[t].src = t; }
         ctx.drawImage(thumbCache[t], 0, 0, 480, 480);
-      } else drawTextMode(ctx, st.slots[st.imageSlot] ? (st.slots[st.imageSlot] === 2 ? 'ANIMATION ' : 'PICTURE ') + (st.imageSlot + 1) : 'NO|IMAGE', '#606060', '#000000');
-    } else if (st.mode === 5) drawTextMode(ctx, st.text, st.textFg, st.textBg);
+      } else drawTextMode(ctx, st.slots[slot] ? (st.slots[slot] === 2 ? 'ANIMATION ' : 'PICTURE ') + (slot + 1) : 'NO|IMAGE', '#5A5A5A', '#000000');
+    } else if (mode === 4) drawTextMode(ctx, st.text, st.textFg, st.textBg);
+    if (mode >= 3 && off) ctx.restore();
     // Dim the preview like the real thing.
-    ctx.fillStyle = `rgba(0,0,0,${1 - st.brightness / 100})`;
+    const b = st.night ? st.nightBrightness : st.powerMode === 1 ? st.showBrightness : st.brightness;
+    ctx.fillStyle = `rgba(0,0,0,${(1 - b / 100) * 0.8})`;
     ctx.fillRect(0, 0, 480, 480);
   }
   requestAnimationFrame(frame);
 }
 
 buildControls();
+setupRules();
 setupPictures();
+setupPower();
 setupSystem();
+try { const t = localStorage.getItem('emblem-tab'); if (t) go(t); } catch (e) {}
 loadState();
 requestAnimationFrame(frame);
-setInterval(() => { if (online && !inFlight) api('/api/state').then(() => setOnline(true)).catch(() => setOnline(false)); }, 10000);
+setTimeout(poll, 5000);
 </script>
 </body>
 </html>

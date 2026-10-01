@@ -16,9 +16,14 @@
 #include <WebServer.h>
 #include <WiFi.h>
 #include <esp_cache.h>
+#include <esp_sleep.h>
+#include <driver/gpio.h>
+#include <esp_sntp.h>
 
 #include "display_config.h"
+#include "motion.h"
 #include "renderer.h"
+#include "rtc_clock.h"
 #include "settings.h"
 #include "web_ui.h"  // generated from web/index.html by tools/embed_web.py
 
@@ -41,6 +46,51 @@ static bool forceFull = true;
 static bool displayOk = false;
 static uint32_t saveAt = 0;
 static uint32_t restartAt = 0;
+static uint32_t shutdownAt = 0;
+
+// Power management state.
+enum SleepReason : uint8_t { SLEEP_NONE = 0, SLEEP_OFF, SLEEP_LOWV };
+RTC_DATA_ATTR static uint8_t sleepReason = SLEEP_NONE;  // survives deep sleep
+static float volts = NAN;          // smoothed battery voltage, NAN if unknown
+static uint32_t lastActivity = 0;  // last change made from the phone
+static uint32_t showStart = 0;     // when car show mode started
+static uint32_t lowSince = 0;      // when the voltage first dropped below the cutoff
+static const uint32_t LOW_VOLT_GRACE_MS = 30000;  // ignore dips (e.g. engine cranking)
+static const uint64_t LOW_VOLT_RECHECK_US = 10ull * 60 * 1000000;  // asleep: re-check every 10 min
+static const float RESUME_MARGIN_V = 0.3f;
+
+// What's on screen: a mode, and for MODE_IMAGE which slot. Usually the
+// selected one, but the start-up clip and auto-cycle show others.
+struct Item {
+    uint8_t mode, slot;
+};
+static Item shown = {0xFF, 0};
+static bool clipPlaying = false;   // start-up / welcome clip from a picture slot
+static uint8_t clipSlot = 0;
+static uint32_t clipStart = 0;
+static bool resting = false;       // screen off while parked; a jolt wakes it
+static int activeRule = -1;        // date-based design in force, -1 = none
+static uint32_t welcomeAt = 0;     // welcome pending (waits to rule out a double-tap)
+static uint32_t welcomeTaps = 0;
+static const uint32_t WELCOME_QUIET_MS = 300000;  // still this long before a jolt means "welcome"
+static void restTick(uint32_t now);
+static void wake(bool welcome);
+static void checkDateRule();
+static bool cycleOn = false;       // auto-cycle has at least two designs
+static bool cycleOverride = false; // showing cycleItem rather than the selection
+static Item cycleItem = {0, 0};
+static uint32_t cycleAt = 0;       // next change
+static uint32_t cycleWaitLoops = UINT32_MAX;
+static float motionFactor = 1;     // effects speed-up from acceleration
+static bool nightNow = false;
+static float brightNow = -1;       // backlight level being shown, %
+static volatile bool ntpSynced = false;
+static float uprightTilt = NAN;    // motion sensor set-up, step 1
+
+// Crossfade between designs.
+static const uint32_t FADE_MS = 450;
+static uint16_t *fadeFrom = nullptr;  // what was on screen when the fade started
+static uint32_t fadeStart = 0;
 
 // ---------------------------------------------------------------------------
 // Display output
@@ -62,15 +112,49 @@ static void *psramAlloc(size_t n) {
     return heap_caps_malloc(n, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
 }
 
+// Car show mode has its own brightness; night dimming overrides both.
+static uint8_t effectiveBrightness() {
+    if (nightNow) return settings.nightBrightness;
+    return settings.powerMode == POWER_CAR_SHOW ? settings.showBrightness : settings.brightness;
+}
+
+// Night by the emblem's clock (local time from the phone's time zone).
+static bool nightTime() {
+    if (!settings.autoDim || !clockValid()) return false;
+    const int64_t local = int64_t(time(nullptr)) + settings.tzMin * 60;
+    const int m = int((local % 86400 + 86400) % 86400 / 60);
+    const int from = settings.nightFrom, to = settings.nightTo;
+    return from <= to ? (m >= from && m < to) : (m >= from || m < to);
+}
+
+static void writeBacklight(float pct) {
+#if LCD_BL_PIN >= 0
+    ledcWrite(LCD_BL_PIN, uint32_t(pct * 1023 / 100 + 0.5f));
+#endif
+}
+
+// The backlight follows effectiveBrightness() smoothly (see rampBrightness);
+// software dimming (no backlight pin) switches straight away.
 static void applyBrightness() {
     if (!displayOk) return;
-    uint8_t pct = constrain(settings.brightness, 5, 100);
-#if LCD_BL_PIN >= 0
-    ledcWrite(LCD_BL_PIN, map(pct, 0, 100, 0, 1023));
-#endif
+    uint8_t pct = constrain(effectiveBrightness(), 5, 100);
+    if (brightNow < 0) {
+        brightNow = pct;
+        writeBacklight(pct);
+    }
     for (int i = 0; i < 32; i++) lut5[i] = i * pct / 100;
     for (int i = 0; i < 64; i++) lut6[i] = i * pct / 100;
-    forceFull = true;
+    if (softDim) forceFull = true;
+}
+
+static void rampBrightness() {
+    if (!displayOk || brightNow < 0) return;
+    const float target = resting ? 0 : constrain(effectiveBrightness(), 5, 100);
+    const float diff = target - brightNow;
+    if (diff == 0) return;
+    const float step = fmaxf(0.5f, fabsf(diff) * 0.08f);
+    brightNow = fabsf(diff) <= step ? target : brightNow + (diff > 0 ? step : -step);
+    writeBacklight(brightNow);
 }
 
 // Double buffering: the panel shows one frame buffer while we fill the other,
@@ -153,25 +237,51 @@ static Rect unite(Rect a, Rect b) {
 // in software) into the back buffer and shows it. The back buffer last held
 // the frame before the previous one, so it also needs the previous frame's
 // changes; copying only that area keeps PSRAM traffic (and drift) down.
+// During a crossfade the whole frame is mixed with the one it replaces.
+static inline uint16_t mix565(uint16_t a, uint16_t b, int t) {
+    int ar = a >> 11, ag = (a >> 5) & 63, ab = a & 31;
+    int r = ar + ((((b >> 11) - ar) * t) >> 8);
+    int g = ag + (((((b >> 5) & 63) - ag) * t) >> 8);
+    int bl = ab + ((((b & 31) - ab) * t) >> 8);
+    return uint16_t((r << 11) | (g << 5) | bl);
+}
+
 static void present(Rect r) {
     if (framesShown++ == 0) logf("First emblem frame sent to the display\n");
-    const Rect area = unite(r, lastDirty);
-    lastDirty = r;
+    const Rect full = {0, 0, Renderer::W, Renderer::H};
+    const bool fading = fadeStart != 0;
+    const int t = fading ? int(min<uint32_t>(256, (millis() - fadeStart) * 256 / FADE_MS)) : 256;
+    const Rect area = fading ? full : unite(r, lastDirty);
+    lastDirty = fading ? full : r;
     const uint16_t *src = renderer.frame();
     uint16_t *dst = fbs[backFb];
-    const bool scale = softDim && settings.brightness < 100;
+    const bool scale = softDim && effectiveBrightness() < 100;
     for (int y = area.y; y < area.y + area.h; y++) {
         const size_t off = size_t(y) * Renderer::W + area.x;
-        if (!scale) {
+        if (!scale && !fading) {
             memcpy(dst + off, src + off, area.w * 2);
             continue;
         }
         for (int x = 0; x < area.w; x++) {
-            uint16_t p = src[off + x];
-            dst[off + x] = (lut5[p >> 11] << 11) | (lut6[(p >> 5) & 63] << 5) | lut5[p & 31];
+            uint16_t p = fading ? mix565(fadeFrom[off + x], src[off + x], t) : src[off + x];
+            if (scale) p = (lut5[p >> 11] << 11) | (lut6[(p >> 5) & 63] << 5) | lut5[p & 31];
+            dst[off + x] = p;
         }
     }
     swapBuffers();
+    if (fading && t >= 256) {
+        fadeStart = 0;
+        forceFull = true;  // the other buffer still holds a mixed frame
+    }
+}
+
+// Starts a crossfade from what's on screen now.
+static void startFade() {
+    if (!fadeFrom) fadeFrom = static_cast<uint16_t *>(psramAlloc(IMAGE_BYTES));
+    if (!fadeFrom) return;
+    // The front buffer is what's showing (already dimmed when dimming in software).
+    memcpy(fadeFrom, softDim ? renderer.frame() : fbs[backFb ^ 1], IMAGE_BYTES);
+    fadeStart = millis() | 1;
 }
 
 // ---------------------------------------------------------------------------
@@ -232,6 +342,7 @@ struct Animation {
     uint16_t count = 0;
     uint16_t index = 0;
     uint32_t nextAt = 0;
+    uint32_t loops = 0;  // times it has played through
 };
 static Animation anim;
 static JPEGDEC jpeg;
@@ -308,13 +419,13 @@ static bool loadAnimation(const String &path) {
     return true;
 }
 
-// Loads the picture or animation in the selected slot into the renderer.
-static void loadImage() {
+// Loads the picture or animation in a slot into the renderer.
+static void loadImage(int slot) {
     if (!displayOk) return;
     freeAnimation();
-    const int slot = settings.imageSlot;
     if (media().exists(animPath(slot))) {
         renderer.imageChanged(loadAnimation(animPath(slot)));
+        resyncDisplay();
         return;
     }
     bool ok = false;
@@ -324,24 +435,41 @@ static void loadImage() {
     }
     if (f) f.close();
     renderer.imageChanged(ok);
+    resyncDisplay();  // reading flash can leave the picture shifted
 }
 
-// Shows the next animation frame when it's due.
+// Shows the next animation frame when it's due. The speed setting and the
+// motion effect scale the frame times.
 static void stepAnimation(uint32_t now) {
-    if (anim.count < 2 || settings.mode != MODE_IMAGE || int32_t(now - anim.nextAt) < 0) return;
+    if (anim.count < 2 || shown.mode != MODE_IMAGE || int32_t(now - anim.nextAt) < 0) return;
     anim.index = (anim.index + 1) % anim.count;
+    if (anim.index == 0) anim.loops++;
     if (decodeFrame(anim.index)) renderer.imageChanged(true);
-    anim.nextAt = now + max<uint16_t>(anim.delay[anim.index], 20);
+    resyncDisplay();  // each frame is read from flash / SD
+    const float speed = settings.animSpeed / 100.0f * motionFactor;
+    anim.nextAt = now + max<uint32_t>(uint32_t(anim.delay[anim.index] / speed), 20);
 }
 
 static void loadSettings() {
     settingsDefaults(settings);
     prefs.begin("emblem", false);
+    // Versions 5-7 are the first part of the current layout: the fields added
+    // since keep their defaults.
     Settings stored;
-    if (prefs.getBytesLength("s") == sizeof(Settings) &&
-        prefs.getBytes("s", &stored, sizeof(stored)) == sizeof(stored) &&
-        stored.version == SETTINGS_VERSION) {
-        settings = stored;
+    settingsDefaults(stored);
+    const size_t len = prefs.getBytesLength("s");
+    if ((len == sizeof(Settings) || len == SETTINGS_V7_SIZE || len == SETTINGS_V6_SIZE) &&
+        prefs.getBytes("s", &stored, len) == len) {
+        const bool current = len == sizeof(Settings) && stored.version == SETTINGS_VERSION;
+        const bool older = (len == SETTINGS_V7_SIZE && stored.version == 7) ||
+                           (len == SETTINGS_V6_SIZE && (stored.version == 5 || stored.version == 6));
+        if (current || older) {
+            // Version 5's default blue was darker.
+            if (stored.version == 5 && stored.quadA == 0x1C69D4) stored.quadA = CLASSIC_BLUE;
+            stored.version = SETTINGS_VERSION;
+            stored.unused = 0;
+            settings = stored;
+        }
     }
 }
 
@@ -349,6 +477,129 @@ static void saveSettings() {
     prefs.putBytes("s", &settings, sizeof(settings));
     saveAt = 0;
     resyncDisplay();
+}
+
+// ---------------------------------------------------------------------------
+// Power: battery voltage, auto-off, car show mode, deep sleep
+
+// Uncalibrated reading from the selected source, NAN if there's none.
+static float readRawVolts() {
+    switch (settings.voltSource) {
+        case VOLT_BOARD: {
+            uint32_t mv = 0;
+            for (int i = 0; i < 16; i++) mv += analogReadMilliVolts(BAT_ADC_PIN);
+            return mv / 16 / 1000.0f * BAT_DIVIDER;
+        }
+        case VOLT_INA219: {
+            Wire.beginTransmission(INA219_ADDR);
+            Wire.write(0x02);  // bus voltage register
+            if (Wire.endTransmission(false) != 0 || Wire.requestFrom(INA219_ADDR, 2) != 2) return NAN;
+            uint16_t raw = (Wire.read() << 8) | Wire.read();
+            return (raw >> 3) * 0.004f;
+        }
+        default:
+            return NAN;
+    }
+}
+
+// Calibrated voltage; readings under 1 V mean nothing is connected.
+static float readVolts() {
+    float v = readRawVolts() * settings.voltCal / 1000.0f;
+    return (isnan(v) || v < 1.0f) ? NAN : v;
+}
+
+// Milliseconds until the emblem turns itself off (never below 0), or -1 if
+// no timer is set.
+static int64_t offInMs(uint32_t now) {
+    int64_t left;
+    if (settings.powerMode == POWER_CAR_SHOW) {
+        if (!settings.showHours) return -1;
+        left = int64_t(settings.showHours) * 3600000 - int64_t(now - showStart);
+    } else {
+        if (!settings.autoOffMin) return -1;
+        left = int64_t(settings.autoOffMin) * 60000 - int64_t(now - lastActivity);
+    }
+    return left < 0 ? 0 : left;
+}
+
+// Deep sleep: backlight held off, panel held in reset, Wi-Fi off. Wakes on
+// the BOOT button, a power cycle, or (after a low-voltage shutdown) every
+// 10 minutes to see whether the battery has recovered.
+static void enterSleep(uint8_t reason) {
+    logf("Sleeping (%s)\n", reason == SLEEP_LOWV ? "low voltage" : "turned off");
+    Serial.flush();
+    sleepReason = reason;
+#if LCD_BL_PIN >= 0
+    ledcDetach(LCD_BL_PIN);
+    pinMode(LCD_BL_PIN, OUTPUT);
+    digitalWrite(LCD_BL_PIN, LOW);
+    gpio_hold_en(gpio_num_t(LCD_BL_PIN));
+    gpio_deep_sleep_hold_en();
+#endif
+    expanderSet(EXIO_LCD_RST, false);
+    WiFi.mode(WIFI_OFF);
+    esp_sleep_enable_ext0_wakeup(GPIO_NUM_0, 0);  // BOOT button
+    if (reason == SLEEP_LOWV && settings.voltSource != VOLT_NONE) esp_sleep_enable_timer_wakeup(LOW_VOLT_RECHECK_US);
+    esp_deep_sleep_start();
+}
+
+// Says goodbye on the screen, fades out and goes to sleep.
+static void shutdownNow(uint8_t reason) {
+    if (saveAt) saveSettings();
+    if (displayOk) {
+        present(renderer.showMessage(reason == SLEEP_LOWV ? "LOW|VOLTAGE" : "GOOD|BYE",
+                                     reason == SLEEP_LOWV ? 0xE22718 : 0xC8CCD2));
+        delay(1600);
+#if LCD_BL_PIN >= 0
+        for (int i = 20; i >= 0; i--) {
+            writeBacklight(fmaxf(brightNow, 0) * i / 20);
+            delay(30);
+        }
+#endif
+    }
+    enterSleep(reason);
+}
+
+// Called once a second.
+static void powerTick(uint32_t now) {
+    float v = readVolts();
+    volts = isnan(v) ? NAN : (isnan(volts) ? v : volts * 0.7f + v * 0.3f);
+
+    const float cutoff = settings.cutoffCV / 100.0f;
+    if (settings.lowVoltOn && !isnan(volts) && volts < cutoff) {
+        if (!lowSince) lowSince = now ? now : 1;
+        if (now - lowSince >= LOW_VOLT_GRACE_MS) shutdownNow(SLEEP_LOWV);
+    } else {
+        lowSince = 0;
+    }
+    const bool night = nightTime();
+    if (night != nightNow) {
+        nightNow = night;
+        logf("Night dimming %s\n", night ? "on" : "off");
+        applyBrightness();
+    }
+    restTick(now);
+    if (resting && motionMoving()) wake(false);
+    if (displayOk) checkDateRule();
+    const bool timed = settings.powerMode == POWER_CAR_SHOW ? settings.showHours : settings.autoOffMin;
+    if (timed && offInMs(now) <= 0) shutdownNow(SLEEP_OFF);
+}
+
+// After waking from a low-voltage shutdown: go straight back to sleep unless
+// the battery has recovered (e.g. the engine is running / it was charged).
+static void checkLowVoltageWake() {
+    if (esp_sleep_get_wakeup_cause() != ESP_SLEEP_WAKEUP_TIMER || sleepReason != SLEEP_LOWV) return;
+    Wire.begin(I2C_SDA, I2C_SCL);
+    delay(20);
+    float v = readVolts();
+    float resume = settings.cutoffCV / 100.0f + RESUME_MARGIN_V;
+    logf("Low-voltage check: %.2f V (resume at %.2f V)\n", v, resume);
+    if (isnan(v) || v < resume) {
+        sleepReason = SLEEP_LOWV;
+        esp_sleep_enable_ext0_wakeup(GPIO_NUM_0, 0);
+        esp_sleep_enable_timer_wakeup(LOW_VOLT_RECHECK_US);
+        esp_deep_sleep_start();
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -392,6 +643,186 @@ static void listSlots(uint8_t *slots) {
     }
 }
 
+// ---------------------------------------------------------------------------
+// What's on screen: selection, auto-cycle, start-up clip
+
+// Designs in the auto-cycle list (empty picture slots are skipped).
+static int cycleList(Item *out) {
+    uint8_t slots[IMAGE_SLOTS];
+    listSlots(slots);
+    int n = 0;
+    for (uint8_t m : {MODE_ROUNDEL, MODE_SPIN, MODE_STRIPES, MODE_TEXT}) {
+        if (settings.cycleItems & (1u << m)) out[n++] = {m, settings.imageSlot};
+    }
+    for (uint8_t i = 0; i < IMAGE_SLOTS; i++) {
+        if ((settings.cycleItems & (1u << (8 + i))) && slots[i]) out[n++] = {MODE_IMAGE, i};
+    }
+    return n;
+}
+
+static bool sameItem(Item a, Item b) {
+    return a.mode == b.mode && (a.mode != MODE_IMAGE || a.slot == b.slot);
+}
+
+static void updateCycleOn() {
+    Item list[IMAGE_SLOTS + 5];
+    cycleOn = settings.cycleSec && cycleList(list) >= 2;
+    if (!cycleOn) cycleOverride = false;
+}
+
+static Item wantedItem() {
+    if (clipPlaying) return {MODE_IMAGE, clipSlot};
+    if (activeRule >= 0) return {settings.rules[activeRule].mode, settings.rules[activeRule].slot};
+    if (cycleOn && cycleOverride) return cycleItem;
+    return {settings.mode, settings.imageSlot};
+}
+
+// Shows wantedItem(): loads its picture if needed, crossfades when it changes.
+// reload: the slot's file changed.
+static void refreshDisplay(bool fade, bool reload = false) {
+    if (!displayOk) return;
+    const Item it = wantedItem();
+    const bool changed = shown.mode == 0xFF || !sameItem(it, shown);
+    if (changed && fade && settings.fades && shown.mode != 0xFF && !renderer.introRunning()) startFade();
+    if (it.mode == MODE_IMAGE && (changed || reload)) {
+        loadImage(it.slot);
+    } else if (changed && it.mode != MODE_IMAGE) {
+        freeAnimation();
+    }
+    Settings s = settings;
+    s.mode = it.mode;
+    s.imageSlot = it.slot;
+    renderer.apply(s);
+    shown = it;
+}
+
+// Next design: the next one in the auto-cycle list, or, without auto-cycle,
+// the next mode / filled picture slot (which becomes the selection).
+static void nextItem() {
+    Item list[IMAGE_SLOTS + 5];
+    int n = 0;
+    if (cycleOn) {
+        n = cycleList(list);
+    } else {
+        uint8_t slots[IMAGE_SLOTS];
+        listSlots(slots);
+        for (uint8_t m : {MODE_ROUNDEL, MODE_SPIN, MODE_STRIPES, MODE_TEXT}) list[n++] = {m, settings.imageSlot};
+        for (uint8_t i = 0; i < IMAGE_SLOTS; i++) {
+            if (slots[i]) list[n++] = {MODE_IMAGE, i};
+        }
+    }
+    int at = -1;
+    for (int i = 0; i < n; i++) {
+        if (sameItem(list[i], shown)) at = i;
+    }
+    const Item next = list[(at + 1) % n];
+    if (cycleOn) {
+        cycleItem = next;
+        cycleOverride = true;
+    } else {
+        settings.mode = next.mode;
+        settings.imageSlot = next.slot;
+        saveAt = millis() + SAVE_DELAY_MS;
+    }
+    cycleAt = millis() + settings.cycleSec * 1000u;
+    cycleWaitLoops = UINT32_MAX;
+    refreshDisplay(true);
+}
+
+// Auto-cycle: change design when it's time, letting an animation finish its
+// current loop first (up to a minute).
+static void cycleTick(uint32_t now) {
+    if (!cycleOn || clipPlaying || activeRule >= 0 || resting || renderer.introRunning() ||
+        int32_t(now - cycleAt) < 0) {
+        return;
+    }
+    if (shown.mode == MODE_IMAGE && anim.count > 1 && now - cycleAt < 60000) {
+        if (cycleWaitLoops == UINT32_MAX) cycleWaitLoops = anim.loops;
+        if (anim.loops == cycleWaitLoops) return;
+    }
+    nextItem();
+}
+
+// Start-up / welcome clip: 0 = the built-in animation, n = picture slot n-1
+// (an animation plays through once, a picture shows for 3 s). Empty slots
+// fall back to the built-in animation.
+static void playClip(uint8_t slot) {
+    if (!displayOk) return;
+    uint8_t slots[IMAGE_SLOTS];
+    listSlots(slots);
+    if (slot && slots[slot - 1]) {
+        clipPlaying = true;
+        clipSlot = slot - 1;
+        clipStart = millis();
+        refreshDisplay(true);
+    } else {
+        clipPlaying = false;
+        renderer.startIntro(millis());
+    }
+}
+
+static void clipTick(uint32_t now) {
+    if (!clipPlaying) return;
+    const uint32_t t = now - clipStart;
+    const bool done = anim.count > 1 ? anim.loops >= 1 : t >= 3000;
+    if (!done && t < 20000) return;
+    clipPlaying = false;
+    cycleAt = now + settings.cycleSec * 1000u;
+    refreshDisplay(true);
+}
+
+// Local date as month * 100 + day, -1 if the clock isn't set.
+static int localMonthDay() {
+    if (!clockValid()) return -1;
+    const time_t local = time(nullptr) + settings.tzMin * 60;
+    struct tm t;
+    gmtime_r(&local, &t);
+    return (t.tm_mon + 1) * 100 + t.tm_mday;
+}
+
+// First date rule that covers today, -1 if none.
+static int dateRuleNow() {
+    const int md = localMonthDay();
+    if (md < 0) return -1;
+    for (int i = 0; i < DATE_RULES; i++) {
+        const DateRule &r = settings.rules[i];
+        if (!r.fromMonth) continue;
+        const int from = r.fromMonth * 100 + r.fromDay, to = r.toMonth * 100 + r.toDay;
+        if (from <= to ? (md >= from && md <= to) : (md >= from || md <= to)) return i;
+    }
+    return -1;
+}
+
+static void checkDateRule() {
+    const int rule = dateRuleNow();
+    if (rule == activeRule) return;
+    activeRule = rule;
+    if (rule >= 0) logf("Special date: design %d\n", rule + 1);
+    refreshDisplay(true);
+}
+
+// Screen off while parked, and back on.
+static void wake(bool welcome) {
+    if (resting) {
+        resting = false;
+        logf("Waking up%s\n", welcome ? " (welcome)" : "");
+    }
+    if (welcome && settings.welcomeOn) playClip(settings.welcomeSlot);
+}
+
+static void restTick(uint32_t now) {
+    if (resting || !settings.restMin || !motionPresent() || clipPlaying || renderer.introRunning()) return;
+    const uint32_t after = settings.restMin * 60000u;
+    if (motionQuietMs() >= after && now - lastActivity >= after) {
+        resting = true;
+        logf("Parked: screen off until the next jolt\n");
+    }
+}
+
+static float joltThreshold(uint8_t sens) {
+    return sens == 1 ? 0.5f : sens == 3 ? 0.12f : 0.25f;
+}
+
 static void sendState() {
     String j;
     j.reserve(1024);
@@ -411,7 +842,6 @@ static void sendState() {
     j += ",\"stripe2\":\"" + colorHex(settings.stripe2) + "\"";
     j += ",\"stripe3\":\"" + colorHex(settings.stripe3) + "\"";
     j += ",\"stripeBg\":\"" + colorHex(settings.stripeBg) + "\"";
-    j += ",\"solid\":\"" + colorHex(settings.solid) + "\"";
     j += ",\"textBg\":\"" + colorHex(settings.textBg) + "\"";
     j += ",\"textFg\":\"" + colorHex(settings.textFg) + "\"";
     j += ",\"text\":" + jsonString(settings.text);
@@ -436,6 +866,69 @@ static void sendState() {
     j += ",\"fsUsedKB\":" + String(unsigned(mediaUsed() / 1024));
     j += ",\"fsTotalKB\":" + String(unsigned(mediaTotal() / 1024));
     j += ",\"animMax\":" + String(unsigned(animMaxBytes()));
+    // Power
+    const uint32_t now = millis();
+    const int64_t offIn = offInMs(now);
+    j += ",\"startupAnim\":" + String(settings.startupAnim);
+    j += ",\"powerMode\":" + String(settings.powerMode);
+    j += ",\"autoOffMin\":" + String(settings.autoOffMin);
+    j += ",\"showHours\":" + String(settings.showHours);
+    j += ",\"showBrightness\":" + String(settings.showBrightness);
+    j += ",\"lowVoltOn\":" + String(settings.lowVoltOn);
+    j += ",\"cutoff\":" + String(settings.cutoffCV / 100.0f, 2);
+    j += ",\"voltSource\":" + String(settings.voltSource);
+    j += ",\"volts\":" + (isnan(volts) ? String("null") : String(volts, 2));
+    j += ",\"offIn\":" + String(offIn < 0 ? -1 : long(offIn / 1000));
+    j += ",\"lowFor\":" + String(lowSince ? long((now - lowSince) / 1000) : 0L);
+    // Designs: auto-cycle, animations, start-up, transitions
+    j += ",\"cycleItems\":" + String(settings.cycleItems);
+    j += ",\"cycleSec\":" + String(settings.cycleSec);
+    j += ",\"cycling\":" + String(cycleOn ? "true" : "false");
+    j += ",\"showMode\":" + String(shown.mode == 0xFF ? settings.mode : shown.mode);
+    j += ",\"showSlot\":" + String(shown.mode == 0xFF ? settings.imageSlot : shown.slot);
+    j += ",\"animSpeed\":" + String(settings.animSpeed);
+    j += ",\"bootSlot\":" + String(settings.bootSlot);
+    j += ",\"fades\":" + String(settings.fades);
+    // Clock and night dimming
+    j += ",\"autoDim\":" + String(settings.autoDim);
+    j += ",\"nightBrightness\":" + String(settings.nightBrightness);
+    j += ",\"nightFrom\":" + String(settings.nightFrom);
+    j += ",\"nightTo\":" + String(settings.nightTo);
+    j += ",\"night\":" + String(nightNow ? "true" : "false");
+    j += ",\"rtc\":" + String(rtcPresent() ? "true" : "false");
+    if (clockValid()) {
+        const int64_t local = int64_t(time(nullptr)) + settings.tzMin * 60;
+        const int m = int((local % 86400 + 86400) % 86400 / 60);
+        char hm[8];
+        snprintf(hm, sizeof(hm), "%02d:%02d", m / 60, m % 60);
+        j += ",\"clock\":\"" + String(hm) + "\"";
+    } else {
+        j += ",\"clock\":null";
+    }
+    // Motion sensor
+    j += ",\"imu\":" + String(motionPresent() ? "true" : "false");
+    j += ",\"motionReact\":" + String(settings.motionReact);
+    j += ",\"doubleTap\":" + String(settings.doubleTap);
+    j += ",\"levelSet\":" + String(settings.levelSign ? "true" : "false");
+    j += ",\"welcomeOn\":" + String(settings.welcomeOn);
+    j += ",\"welcomeSlot\":" + String(settings.welcomeSlot);
+    j += ",\"welcomeSens\":" + String(settings.welcomeSens);
+    j += ",\"restMin\":" + String(settings.restMin);
+    j += ",\"resting\":" + String(resting ? "true" : "false");
+    // Date rules as "fromMonth.fromDay.toMonth.toDay.mode.slot;..."
+    j += ",\"rules\":\"";
+    for (int i = 0, n = 0; i < DATE_RULES; i++) {
+        const DateRule &r = settings.rules[i];
+        if (!r.fromMonth) continue;
+        if (n++) j += ";";
+        j += String(r.fromMonth) + "." + r.fromDay + "." + r.toMonth + "." + r.toDay + "." + r.mode + "." + r.slot;
+    }
+    j += "\",\"activeRule\":" + String(activeRule);
+    if (motionPresent()) {
+        j += ",\"moving\":" + String(motionMoving() ? "true" : "false");
+        j += ",\"jolt\":" + String(motionPeakJolt(), 2);
+        j += ",\"boost\":" + String(motionBoost(), 2);
+    }
     j += "}";
     server.sendHeader("Cache-Control", "no-store");
     server.send(200, "application/json", j);
@@ -459,11 +952,39 @@ static void argText(const char *name, char *out, size_t size) {
     strlcpy(out, server.arg(name).c_str(), size);
 }
 
+// Only setting the clock (the page does that whenever it opens): nothing to redraw.
+static bool clockOnly() {
+    for (int i = 0; i < server.args(); i++) {
+        const String n = server.argName(i);
+        if (n != "clock" && n != "tz" && n != "plain") return false;
+    }
+    return true;
+}
+
 static void handleSet() {
     long v;
+    if (clockOnly()) {
+        if (argInt("tz", -840, 840, v) && settings.tzMin != v) {
+            settings.tzMin = v;
+            saveAt = millis() + SAVE_DELAY_MS;
+        }
+        const time_t t = time_t(strtoll(server.arg("clock").c_str(), nullptr, 10));
+        if (t > 1700000000) rtcSet(t);
+        const bool night = nightTime();
+        if (night != nightNow) {
+            nightNow = night;
+            applyBrightness();
+        }
+        lastActivity = millis();
+        wake(false);  // opening the page wakes the screen
+        checkDateRule();
+        sendState();
+        return;
+    }
     const uint8_t oldMode = settings.mode;
     const uint8_t oldSlot = settings.imageSlot;
     const uint8_t oldBrightness = settings.brightness;
+    (void)oldBrightness;
 
     if (argInt("mode", 0, MODE_COUNT - 1, v)) settings.mode = v;
     if (argInt("brightness", 5, 100, v)) settings.brightness = v;
@@ -480,18 +1001,95 @@ static void handleSet() {
     argColor("stripe2", settings.stripe2);
     argColor("stripe3", settings.stripe3);
     argColor("stripeBg", settings.stripeBg);
-    argColor("solid", settings.solid);
     argColor("textBg", settings.textBg);
     argColor("textFg", settings.textFg);
     argText("labelText", settings.labelText, sizeof(settings.labelText));
     argText("text", settings.text, sizeof(settings.text));
 
-    if (settings.mode == MODE_IMAGE && (oldMode != MODE_IMAGE || oldSlot != settings.imageSlot)) loadImage();
-    if (settings.brightness != oldBrightness) applyBrightness();
-    if (displayOk) renderer.apply(settings);
-    if (displayOk && oldMode != settings.mode && (settings.mode == MODE_ROUNDEL || settings.mode == MODE_SPIN)) {
-        renderer.startIntro(millis());
+    // Power
+    const uint8_t oldPower = settings.powerMode;
+    const uint8_t oldShowBrightness = settings.showBrightness;
+    if (argInt("startupAnim", 0, 1, v)) settings.startupAnim = v;
+    if (argInt("powerMode", 0, 1, v)) settings.powerMode = v;
+    if (argInt("autoOffMin", 0, 720, v)) settings.autoOffMin = v;
+    if (argInt("showHours", 0, 48, v)) settings.showHours = v;
+    if (argInt("showBrightness", 5, 100, v)) settings.showBrightness = v;
+    if (argInt("lowVoltOn", 0, 1, v)) settings.lowVoltOn = v;
+    if (argInt("voltSource", 0, 2, v)) {
+        if (settings.voltSource != v) volts = NAN;
+        settings.voltSource = v;
     }
+    if (server.hasArg("cutoff")) settings.cutoffCV = constrain(lroundf(server.arg("cutoff").toFloat() * 100), 250, 1600);
+    if (server.hasArg("calibrateTo")) {
+        // Match a multimeter: scale so the current reading equals what was entered.
+        float raw = readRawVolts(), actual = server.arg("calibrateTo").toFloat();
+        if (!isnan(raw) && raw > 0.5f && actual > 0.5f) {
+            settings.voltCal = constrain(lroundf(actual / raw * 1000), 500, 2000);
+            volts = NAN;
+        }
+    }
+    if (server.hasArg("calibrateReset")) settings.voltCal = 1000;
+
+    // Designs, clock, motion
+    if (argInt("cycleItems", 0, 0x3FFFF, v)) settings.cycleItems = v;
+    if (argInt("cycleSec", 0, 3600, v)) settings.cycleSec = v;
+    if (argInt("animSpeed", 25, 300, v)) settings.animSpeed = v;
+    if (argInt("bootSlot", 0, IMAGE_SLOTS, v)) settings.bootSlot = v;
+    if (argInt("fades", 0, 1, v)) settings.fades = v;
+    if (argInt("autoDim", 0, 1, v)) settings.autoDim = v;
+    if (argInt("nightBrightness", 5, 100, v)) settings.nightBrightness = v;
+    if (argInt("nightFrom", 0, 1439, v)) settings.nightFrom = v;
+    if (argInt("nightTo", 0, 1439, v)) settings.nightTo = v;
+    if (argInt("tz", -840, 840, v)) settings.tzMin = v;
+    if (server.hasArg("clock")) {
+        const time_t t = time_t(strtoll(server.arg("clock").c_str(), nullptr, 10));
+        if (t > 1700000000) rtcSet(t);
+    }
+    if (argInt("motionReact", 0, 100, v)) settings.motionReact = v;
+    if (argInt("doubleTap", 0, 3, v)) settings.doubleTap = v;
+    motionSetTapSensitivity(settings.doubleTap);
+    if (argInt("welcomeOn", 0, 1, v)) settings.welcomeOn = v;
+    if (argInt("welcomeSlot", 0, IMAGE_SLOTS, v)) settings.welcomeSlot = v;
+    if (argInt("welcomeSens", 1, 3, v)) settings.welcomeSens = v;
+    motionSetJoltThreshold(joltThreshold(settings.welcomeSens));
+    if (argInt("restMin", 0, 240, v)) settings.restMin = v;
+    if (server.hasArg("rules")) {
+        // "fromMonth.fromDay.toMonth.toDay.mode.slot;..." (empty = none)
+        memset(settings.rules, 0, sizeof(settings.rules));
+        const String list = server.arg("rules");
+        int n = 0, start = 0;
+        while (start < int(list.length()) && n < DATE_RULES) {
+            int end = list.indexOf(';', start);
+            if (end < 0) end = list.length();
+            unsigned fm, fd, tm, td, mode, slot;
+            if (sscanf(list.substring(start, end).c_str(), "%u.%u.%u.%u.%u.%u", &fm, &fd, &tm, &td, &mode, &slot) == 6 &&
+                fm >= 1 && fm <= 12 && tm >= 1 && tm <= 12 && fd >= 1 && fd <= 31 && td >= 1 && td <= 31 &&
+                mode < MODE_COUNT && slot < IMAGE_SLOTS) {
+                settings.rules[n++] = {uint8_t(fm), uint8_t(fd), uint8_t(tm), uint8_t(td), uint8_t(mode), uint8_t(slot)};
+            }
+            start = end + 1;
+        }
+        activeRule = dateRuleNow();
+    }
+    wake(false);  // using the page wakes the screen
+    if (settings.powerMode != oldPower && settings.powerMode == POWER_CAR_SHOW) showStart = millis();
+    lastActivity = millis();
+
+    // Picking a design shows it straight away; auto-cycle carries on from there.
+    if (settings.mode != oldMode || settings.imageSlot != oldSlot) {
+        cycleOverride = false;
+        cycleAt = millis() + settings.cycleSec * 1000u;
+        cycleWaitLoops = UINT32_MAX;
+    }
+    const bool wasCycling = cycleOn;
+    updateCycleOn();
+    if (cycleOn && !wasCycling) cycleAt = millis() + settings.cycleSec * 1000u;
+    nightNow = nightTime();
+    if (settings.brightness != oldBrightness || settings.showBrightness != oldShowBrightness ||
+        settings.powerMode != oldPower || server.hasArg("autoDim") || server.hasArg("nightBrightness")) {
+        applyBrightness();
+    }
+    refreshDisplay(true);
     saveAt = millis() + SAVE_DELAY_MS;
     sendState();
 }
@@ -529,7 +1127,7 @@ static bool storeUpload(long slot, const String &path) {
         return false;
     }
     // Stop playing the slot before replacing its file.
-    if (slot == settings.imageSlot) freeAnimation();
+    if (shown.mode == MODE_IMAGE && slot == shown.slot) freeAnimation();
     media().remove(imagePath(slot));
     media().remove(animPath(slot));
     if (!media().rename(uploadPath(), path)) {
@@ -538,8 +1136,10 @@ static bool storeUpload(long slot, const String &path) {
     }
     settings.mode = MODE_IMAGE;
     settings.imageSlot = slot;
-    loadImage();
-    if (displayOk) renderer.apply(settings);
+    lastActivity = millis();
+    cycleOverride = false;
+    updateCycleOn();
+    refreshDisplay(true, true);
     saveAt = millis() + SAVE_DELAY_MS;
     sendState();
     return true;
@@ -576,12 +1176,66 @@ static void handleAnimDone() {
 static void handleImageDelete() {
     long slot = server.arg("slot").toInt();
     if (slot >= 0 && slot < IMAGE_SLOTS) {
-        if (slot == settings.imageSlot) freeAnimation();
+        const bool onScreen = shown.mode == MODE_IMAGE && shown.slot == slot;
+        if (onScreen) freeAnimation();
         media().remove(imagePath(slot));
         media().remove(animPath(slot));
+        updateCycleOn();
+        if (onScreen) refreshDisplay(false, true);
     }
-    if (settings.mode == MODE_IMAGE && settings.imageSlot == slot) loadImage();
     sendState();
+}
+
+// Angle difference a - b wrapped to -180..180.
+static float angleDiff(float a, float b) {
+    float d = fmodf(a - b + 540.0f, 360.0f) - 180.0f;
+    return d;
+}
+
+// Motion sensor set-up (upright, then turned clockwise) and "level now".
+static void handleMotion() {
+    if (!motionPresent()) {
+        server.send(503, "text/plain", "No motion sensor found on this board");
+        return;
+    }
+    const String what = server.arg("do");
+    if (what == "upright") {
+        uprightTilt = motionTiltDeg();
+        server.send(200, "text/plain", "Got it. Now turn the emblem clockwise (about a quarter turn) and tap Step 2.");
+    } else if (what == "clockwise") {
+        if (isnan(uprightTilt)) {
+            server.send(400, "text/plain", "Do step 1 first");
+            return;
+        }
+        const float d = angleDiff(motionTiltDeg(), uprightTilt);
+        if (fabsf(d) < 10) {
+            server.send(400, "text/plain", "Turn it further (at least 20 degrees), then tap Step 2 again");
+            return;
+        }
+        settings.levelRef = int16_t(lroundf(uprightTilt * 10));
+        settings.levelSign = d > 0 ? 1 : -1;
+        uprightTilt = NAN;
+        saveSettings();
+        server.send(200, "text/plain", "Motion sensor set up. Once it's fitted, park on level ground and tap Level now.");
+    } else if (what == "level") {
+        if (!settings.levelSign) {
+            server.send(400, "text/plain", "Set up the motion sensor first (steps 1 and 2)");
+            return;
+        }
+        if (motionMoving()) {
+            server.send(400, "text/plain", "Wait until the car is still");
+            return;
+        }
+        // How far the badge is turned clockwise from upright; turn the design back.
+        const float tilt = settings.levelSign * angleDiff(motionTiltDeg(), settings.levelRef / 10.0f);
+        settings.angle = constrain(lroundf(-tilt), -180, 180);
+        lastActivity = millis();
+        refreshDisplay(false);
+        saveSettings();
+        server.send(200, "text/plain", "Levelled: design turned " + String(settings.angle) + " degrees");
+    } else {
+        server.send(400, "text/plain", "Unknown action");
+    }
 }
 
 // Changing the panel type needs a restart because the panel is set up once at boot.
@@ -643,6 +1297,13 @@ static void handleRoot() {
     server.send_P(200, "text/html", reinterpret_cast<const char *>(INDEX_HTML_GZ), INDEX_HTML_GZ_LEN);
 }
 
+// HEVC decoder for the page (only fetched when a phone video needs it).
+static void sendGz(const char *type, const uint8_t *data, size_t len) {
+    server.sendHeader("Content-Encoding", "gzip");
+    server.sendHeader("Cache-Control", "max-age=86400");
+    server.send_P(200, type, reinterpret_cast<const char *>(data), len);
+}
+
 // Any unknown URL (including phones' "is there internet?" checks) goes to the
 // control page, which makes the phone pop it up as a sign-in page.
 static void handleNotFound() {
@@ -652,6 +1313,8 @@ static void handleNotFound() {
 
 static void setupWeb() {
     server.on("/", HTTP_GET, handleRoot);
+    server.on("/hevc.js", HTTP_GET, [] { sendGz("text/javascript", HEVC_JS_GZ, HEVC_JS_GZ_LEN); });
+    server.on("/hevc.wasm", HTTP_GET, [] { sendGz("application/wasm", HEVC_WASM_GZ, HEVC_WASM_GZ_LEN); });
     server.on("/api/state", HTTP_GET, sendState);
     server.on("/api/set", HTTP_POST, handleSet);
     server.on("/api/image", HTTP_POST, handleImageDone, [] { handleUpload(IMAGE_BYTES); });
@@ -659,9 +1322,14 @@ static void setupWeb() {
     server.on("/api/image/delete", HTTP_POST, handleImageDelete);
     server.on("/api/wifi", HTTP_POST, handleWifi);
     server.on("/api/panel", HTTP_POST, handlePanel);
+    server.on("/api/motion", HTTP_POST, handleMotion);
     server.on("/api/test", HTTP_POST, [] {
         server.send(200, "text/plain", "Showing red, green, blue, white");
         showTestColours();
+    });
+    server.on("/api/power/off", HTTP_POST, [] {
+        server.send(200, "text/plain", "Turning off. Press the BOOT button or power-cycle to wake it.");
+        shutdownAt = millis() + 600;
     });
     server.on("/api/reboot", HTTP_POST, [] {
         server.send(200, "text/plain", "Restarting...");
@@ -674,6 +1342,14 @@ static void setupWeb() {
 
 static void setupWifi() {
     WiFi.persistent(false);
+    // Shows up as "emblem" in the phone's list of hotspot devices.
+    WiFi.setHostname("emblem");
+    // On the hotspot the emblem can also fetch the time from the internet.
+    sntp_set_time_sync_notification_cb([](struct timeval *) { ntpSynced = true; });
+    WiFi.onEvent([](WiFiEvent_t, WiFiEventInfo_t) {
+        logf("Joined \"%s\" as %s\n", settings.staSsid, WiFi.localIP().toString().c_str());
+        configTime(0, 0, "pool.ntp.org", "time.google.com");
+    }, ARDUINO_EVENT_WIFI_STA_GOT_IP);
     WiFi.mode(settings.staSsid[0] ? WIFI_AP_STA : WIFI_AP);
     WiFi.softAP(settings.apSsid, strlen(settings.apPass) >= 8 ? settings.apPass : nullptr);
     if (settings.staSsid[0]) WiFi.begin(settings.staSsid, settings.staPass);
@@ -724,10 +1400,7 @@ static void setupDisplay() {
     }
     displayOk = true;
     applyBrightness();
-    renderer.apply(settings);
-    if (settings.mode == MODE_ROUNDEL || settings.mode == MODE_SPIN) renderer.startIntro(millis());
     logf("Display ready\n");
-    showTestColours();
 }
 
 // The card slot shares GPIO1/2 with the display's set-up bus, so this must
@@ -750,18 +1423,37 @@ void setup() {
 #if ARDUINO_USB_CDC_ON_BOOT
     Serial0.begin(115200);
 #endif
-    delay(1500);  // give the USB serial port time to appear so the log isn't lost
-    logf("\n=== Emblem starting ===\n");
-
-    if (!LittleFS.begin(true)) logf("LittleFS mount failed\n");
+#if LCD_BL_PIN >= 0
+    gpio_hold_dis(gpio_num_t(LCD_BL_PIN));  // held low during deep sleep
+    gpio_deep_sleep_hold_dis();
+#endif
     loadSettings();
+    checkLowVoltageWake();  // may go straight back to sleep
+    sleepReason = SLEEP_NONE;
+    delay(300);
+    logf("\n=== Emblem starting ===\n");
+    if (!LittleFS.begin(true)) logf("LittleFS mount failed\n");
 
     // Wi-Fi first: even if the display fails, the phone page stays reachable.
     setupWifi();
     setupWeb();
     setupDisplay();
     setupSD();
-    if (settings.mode == MODE_IMAGE) loadImage();
+    Wire.setClock(400000);
+    logf(rtcBegin() ? "Clock: set\n" : rtcPresent() ? "Clock: not set yet\n" : "Clock chip not found\n");
+    logf(motionBegin() ? "Motion sensor found\n" : "Motion sensor not found\n");
+    motionSetTapSensitivity(settings.doubleTap);
+    nightNow = nightTime();
+    applyBrightness();
+
+    motionSetJoltThreshold(joltThreshold(settings.welcomeSens));
+    updateCycleOn();
+    activeRule = dateRuleNow();
+    refreshDisplay(false);
+    // Start-up: the built-in animation or a picture slot's clip.
+    if (settings.startupAnim) playClip(settings.bootSlot);
+    lastActivity = showStart = cycleAt = millis();
+    cycleAt += settings.cycleSec * 1000u;
 }
 
 void loop() {
@@ -770,22 +1462,73 @@ void loop() {
 
     static uint32_t lastFrame = 0;
     uint32_t now = millis();
-    if (displayOk) stepAnimation(now);
+
+    // Motion: speed-up from acceleration, double-tap for the next design.
+    if (motionPresent()) {
+        const float k = constrain((motionBoost() - 0.05f) / 0.35f, 0.0f, 1.0f);
+        motionFactor = 1 + settings.motionReact / 100.0f * 2 * k;
+        static uint32_t tapsSeen = motionDoubleTaps();
+        const uint32_t taps = motionDoubleTaps();
+        if (taps != tapsSeen) {
+            tapsSeen = taps;
+            welcomeAt = 0;  // it was a double-tap, not a welcome jolt
+            if (resting) {
+                wake(true);
+            } else if (settings.doubleTap && displayOk && !clipPlaying && !renderer.introRunning()) {
+                logf("Double-tap: next design\n");
+                lastActivity = now;
+                nextItem();
+            }
+        }
+        // A jolt after the car has been still (a door or the boot closing):
+        // welcome. Waits a moment in case it's the first tap of a double-tap.
+        static uint32_t joltsSeen = motionJolts();
+        const uint32_t jolts = motionJolts();
+        if (jolts != joltsSeen) {
+            joltsSeen = jolts;
+            if (resting || (settings.welcomeOn && motionQuietBeforeJolt() >= WELCOME_QUIET_MS)) {
+                welcomeAt = (now + 700) | 1;
+                welcomeTaps = motionDoubleTaps();
+            }
+        }
+        if (welcomeAt && int32_t(now - welcomeAt) >= 0) {
+            welcomeAt = 0;
+            if (motionDoubleTaps() == welcomeTaps && displayOk && !renderer.introRunning()) wake(true);
+        }
+    }
+    renderer.setBoost(motionFactor);
+    if (ntpSynced) {
+        ntpSynced = false;
+        rtcSaveSystemTime();
+        logf("Clock set from the internet\n");
+    }
+    if (displayOk) {
+        clipTick(now);
+        cycleTick(now);
+        if (!resting) stepAnimation(now);
+    }
     static uint32_t lastResync = 0;
     if (displayOk && now - lastResync >= 1000) {
         lastResync = now;
         resyncDisplay();
     }
-    if (displayOk && now - lastFrame >= FRAME_MS) {
+    if (displayOk && now - lastFrame >= FRAME_MS && !(resting && brightNow <= 0)) {
         lastFrame = now;
+        rampBrightness();
         Rect r = renderer.render(now);
-        if (forceFull) {
+        if (forceFull || fadeStart) {
             r = {0, 0, Renderer::W, Renderer::H};
             forceFull = false;
         }
         if (!r.empty()) present(r);
     }
 
+    static uint32_t lastPowerTick = 0;
+    if (now - lastPowerTick >= 1000) {
+        lastPowerTick = now;
+        powerTick(now);
+    }
+    if (shutdownAt && int32_t(now - shutdownAt) >= 0) shutdownNow(SLEEP_OFF);
     if (saveAt && int32_t(now - saveAt) >= 0) saveSettings();
     if (restartAt && int32_t(now - restartAt) >= 0) ESP.restart();
     delay(1);

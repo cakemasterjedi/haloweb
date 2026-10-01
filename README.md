@@ -13,33 +13,93 @@ there's no app to install.
 
 | Mode | What it looks like | Speed slider |
 |---|---|---|
-| **Roundel** | Classic roundel with chrome rims. Colours and ring lettering are editable. Presets: Classic, Blackout, Motorsport, Carbon, Gold | – |
+| **Roundel** | The classic badge: thin silver rims, glossy black ring with bold upright lettering, blue and white quarters. Colours and lettering are editable; presets Classic, Blackout, Motorsport, Carbon, Gold | – |
 | **Spin** | Roundel with the quarters rotating | spin speed / direction |
-| **M Stripes** | Tri-colour stripes on a carbon-weave background | 0 = static, otherwise scrolls |
-| **Colour** | Solid colour | 0 = steady, otherwise breathes |
-| **Picture** | Photos, GIFs or videos from your phone (10 slots). Fill / Fit / Fit circle, zoom (pinch), drag, rotate. Animations play at up to ~15 fps | – |
+| **Stripes** | M tri-colour stripes on carbon-fibre twill | 0 = static, otherwise scrolls |
+| **Picture** | Photos, GIFs or videos from your phone (10 slots). Fill / Fit / Fit circle, zoom (pinch), drag, rotate | – |
 | **Text** | Your own text, `\|` starts a new line (e.g. `M\|POWER`) | – |
 
-All modes also have **brightness** and **rotation**. Use rotation to level the
-emblem if the board ends up mounted at an angle. Settings are saved on the
-board and come back after power-up, and the roundel spins up when it boots.
+All modes also have **brightness** and **rotation** (to level the emblem if it's
+mounted at an angle). Settings are saved on the board.
+
+- **Auto-cycle** (Emblem tab): rotates through the designs you pick (modes and
+  picture slots) every 5 s – 10 min. An animation finishes its loop before the
+  next design comes on.
+- **Smooth transitions:** designs crossfade into each other (Settings).
+- **Animation speed:** 25–300 % for uploaded animations (Emblem tab, shown when
+  an animation is selected).
+- **Special dates** (Emblem tab): a design for certain days every year, e.g.
+  1–26 Dec → your Christmas animation (up to 8 dates, presets for common
+  holidays). On those days it replaces the normal design and auto-cycle.
+- **Start-up** (Settings): the built-in animation (the ring sweeps in, the
+  quarters spin into place, a glint crosses the badge), any picture or
+  animation slot, or off. Then your selected design takes over.
+
+## Power (the Power tab)
+
+- **Normal mode:** optionally turns itself off after 5 min – 4 h, counted from
+  power-on or your last change on the phone.
+- **Car show mode:** stays on (for 1–24 h, or until the battery is low) with its
+  own brightness.
+- **Battery protection:** live voltage readout; turns off if the voltage stays
+  below your cutoff for 30 s (so cranking dips don't trigger it). After a
+  low-voltage shutdown it wakes every 10 minutes and comes back on once the
+  battery is above the cutoff + 0.3 V.
+- **Voltage source:**
+  - *Board LiPo* – a battery on the board's battery connector (GPIO4).
+  - *Car battery* – an **INA219** module on the board's I2C connector
+    (SDA 15, SCL 7, 3.3 V, GND; VIN+ to the car battery +, VIN- can be left
+    unconnected, and the module's GND to the car's ground). Every analog pin that
+    works alongside Wi-Fi is taken by the display, so a 12 V battery can't be read
+    directly.
+  - Calibrate against a multimeter reading from the page.
+- **Night dimming:** its own brightness between two times (default 19:00 –
+  07:00), fading over. The board's clock chip keeps the time while it has
+  power; it's set whenever you open the page, and from the internet when it's
+  on your hotspot.
+- **"Off" is deep sleep:** screen, backlight and Wi-Fi off. Wake it with the
+  **BOOT** button or by cutting and restoring power. The board still draws a
+  little current asleep (regulator, USB chip, LEDs), so for zero drain use an
+  ignition-switched supply.
+
+## Motion sensor (Settings tab)
+
+The board has a motion sensor (QMI8658), used for:
+
+- **Motion effects:** Spin, Stripes and animations speed up (up to 3×) when you
+  accelerate or brake. Animations keep playing while driving either way.
+- **Double-tap to change design:** tap the badge twice for the next design
+  (the next auto-cycle design, or the next mode / picture). Ignored while
+  driving. The page shows the last jolt so you can pick the sensitivity.
+- **Welcome animation:** when the car has been still for 5 minutes, the next
+  jolt (a door or the boot shutting) plays a welcome clip: the built-in
+  animation or any picture/animation slot. Pick how big a jolt it needs.
+- **Screen off when parked:** after the car has been still for a set time the
+  screen goes dark; a jolt wakes it (with the welcome, if on), as does opening
+  the page. The board stays on, so use the auto-off timer or battery
+  protection for longer stops.
+- **Level:** a one-time set-up on the bench (hold it upright → Step 1, turn it
+  a quarter turn clockwise → Step 2) teaches it which way is up. Once fitted,
+  park on level ground and tap *Level now*; it sets the rotation for you.
+  Rotation now turns pictures and text as well as the roundel and stripes.
 
 ## Using it
 
 1. Power the board. It starts a Wi-Fi network **`BMW-Emblem`**, password **`emblem123`**.
 2. Join it from your phone. Most phones then open the control page on their
    own as a "sign in to network" page. If yours doesn't, browse to
-   **http://192.168.4.1** (or http://emblem.local).
+   **http://192.168.4.1** (http://emblem.local also works on iPhones and computers, not Android).
 3. On Android, when it warns that the network has no internet, choose
    **Stay connected**.
 4. Add the page to your home screen so it works like an app.
 
-Under **Wi-Fi & system** you can:
+Under **Settings** you can:
 
 - rename the network or change its password;
 - have the board also join another network, such as your phone's hotspot, so
-  your phone keeps its internet. The page then shows the emblem's address on
-  that network;
+  your phone keeps its internet. The page shows the address it gets there
+  (it's also listed as "emblem" among the hotspot's devices). Use that
+  address: `emblem.local` doesn't work in Android browsers;
 - install firmware updates over Wi-Fi, so you don't need to reach the USB port
   once it's in the car.
 
@@ -69,11 +129,16 @@ g++ -O2 -std=c++17 -Isrc tools/host_preview.cpp src/renderer.cpp -o preview && .
 ## Pictures & animations
 
 - **Photos** are stored at full quality (480×480).
-- **GIFs / animated WebP** keep their own timing. The phone needs a browser that
-  can read them frame by frame (Chrome / Android); other browsers use the first
-  frame.
+- **GIFs** keep their own timing and work in any browser (Firefox, Chrome,
+  Safari). Animated WebP needs a browser with ImageDecoder (Chrome, newer
+  Firefox); otherwise its first frame is used.
 - **Videos** (MP4, WebM, MOV): pick the frame rate (10–25 fps) and length
-  (up to 15 s).
+  (up to 60 s). Phone videos work straight from the camera in any browser,
+  Firefox included: when the browser can't play HEVC (H.265) itself, the page
+  decodes it with a WebAssembly decoder that the emblem serves (about 110 KB,
+  `web/vendor/hevc`). HDR videos are tone-mapped to normal colours, and
+  portrait videos come out upright. That decoding runs on the phone, so a long
+  4K clip takes a while to prepare.
 - **Size limits:** animations play straight from storage, so the limit is free
   space. Internal flash (~12 MB) allows up to 8 MB per animation; a micro SD
   card allows up to 32 MB. If a clip is too big, the page lowers the quality,
@@ -96,9 +161,9 @@ g++ -O2 -std=c++17 -Isrc tools/host_preview.cpp src/renderer.cpp -o preview && .
 - **Pins** are in `include/display_config.h`.
 - **Backlight / brightness** uses PWM on GPIO6. If your board doesn't have the
   backlight there, add `-DLCD_BL_PIN=-1` to `build_flags` to dim in software.
-- **Panel type** (*Wi-Fi & system* on the phone page): 18 MHz pixel clock by
-  default (Waveshare's ESP-IDF demo), plus 30 MHz and 12 MHz options.
-  *Show test colours* fills the screen red, green, blue, white.
+- **Panel timing** (*Settings* tab): 18 MHz pixel clock by default (Waveshare's
+  ESP-IDF demo), plus 30 MHz and 12 MHz options. *Test colours* fills the screen
+  red, green, blue, white.
 - **Smooth output:** double-buffered (no tearing), and the RGB stream is
   re-synced after flash writes and once a second so the picture can't stay
   shifted if the S3 falls behind (a known ESP32-S3 RGB "drift").
@@ -115,9 +180,13 @@ g++ -O2 -std=c++17 -Isrc tools/host_preview.cpp src/renderer.cpp -o preview && .
 ```
 src/main.cpp          Wi-Fi, web server, storage, display output
 src/renderer.*        draws every mode into a frame buffer (portable C++)
-src/stroke_font.h     vector font for the ring lettering and text mode
+src/label_font.h      bold letters for the ring (made by tools/gen_label_font.py)
+src/stroke_font.h     vector font for text mode
 src/settings.h        settings + defaults
+src/motion.*          motion sensor (acceleration, double-tap, level)
+src/rtc_clock.*       clock chip (night dimming)
 web/index.html        phone control page
+web/vendor/hevc/      HEVC video decoder for the page (hevc.js, MIT, with a tiles fix)
 include/display_config.h  board pins / display init
 tools/                web embedding, mock server, PC preview
 ```
