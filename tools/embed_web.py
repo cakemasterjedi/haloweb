@@ -20,10 +20,25 @@ def build_html(root):
     return html.replace("/*FONT*/{}", json.dumps(font, separators=(",", ":")))
 
 
+def build_id(root):
+    """Short git commit (+ '-modified' if there are local changes) and build date."""
+    import datetime
+    import subprocess
+    try:
+        rev = subprocess.check_output(["git", "-C", root, "rev-parse", "--short", "HEAD"], text=True).strip()
+        dirty = subprocess.call(["git", "-C", root, "diff", "--quiet", "HEAD", "--", "src", "include", "web"]) != 0
+        rev += "-modified" if dirty else ""
+    except Exception:
+        rev = "unknown"
+    return "%s %s" % (rev, datetime.datetime.now().strftime("%Y-%m-%d %H:%M"))
+
+
 try:
     Import("env")  # noqa: F821  (provided by PlatformIO/SCons)
     root = env.subst("$PROJECT_DIR")  # noqa: F821
     standalone = True
+    # The firmware shows this at start-up and on the page, to tell builds apart.
+    env.Append(CPPDEFINES=[("FW_BUILD", '\\"%s\\"' % build_id(root))])  # noqa: F821
 except NameError:
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     standalone = __name__ == "__main__"

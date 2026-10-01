@@ -36,7 +36,7 @@ state = {
     "night": False, "rtc": True, "clock": None, "imu": True, "motionReact": 0, "doubleTap": 0,
     "levelSet": False, "moving": False, "jolt": 0.03, "boost": 0.0,
     "welcomeOn": 0, "welcomeSlot": 0, "welcomeSens": 2, "restMin": 0, "resting": False,
-    "rules": "", "activeRule": -1, "motionOff": 0, "resetReason": "power on", "safeMode": False, "uptime": 75,
+    "rules": "", "activeRule": -1, "motionOff": 0, "resetReason": "power on", "safeMode": False, "uptime": 75, "build": "mock",
 }
 tz_min = 0
 clock_offset = None  # phone time - server time, once set
