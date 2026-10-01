@@ -5,6 +5,8 @@
 #include <Wire.h>
 #include <sys/time.h>
 
+#include "i2c_bus.h"
+
 namespace {
 
 const uint8_t ADDR = 0x51;
@@ -27,6 +29,7 @@ time_t utcFromTm(const struct tm &t) {
 }  // namespace
 
 bool rtcBegin() {
+    I2CLock lock;
     Wire.beginTransmission(ADDR);
     Wire.write(REG_SECONDS);
     if (Wire.endTransmission(false) != 0 || Wire.requestFrom(ADDR, uint8_t(7)) != 7) return false;
@@ -60,6 +63,7 @@ void rtcSaveSystemTime() {
     time_t now = time(nullptr);
     struct tm t;
     gmtime_r(&now, &t);
+    I2CLock lock;
     Wire.beginTransmission(ADDR);
     Wire.write(REG_CONTROL1);
     Wire.write(0x00);  // running, 24-hour

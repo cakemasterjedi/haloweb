@@ -33,3 +33,6 @@ uint32_t motionQuietMs();
 // sensitivity: 1 low .. 3 high (0 = don't detect).
 uint32_t motionDoubleTaps();
 void motionSetTapSensitivity(uint8_t sensitivity);
+
+// Pauses / resumes reading the sensor (the "use the motion sensor" setting).
+void motionSetEnabled(bool on);

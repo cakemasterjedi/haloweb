@@ -50,7 +50,7 @@ struct Settings {
     int16_t angle;       // rotation offset in degrees, to line the emblem up on the car
     uint8_t panel;       // index into PANEL_TYPES (display_config.h)
     uint8_t startupAnim; // play the start-up animation at power-on
-    uint8_t unused;      // was showIp (version 5)
+    uint8_t motionOff;   // don't use the motion sensor (was showIp in version 5)
 
     // Roundel (colours are 0xRRGGBB)
     uint32_t quadA;      // top-left + bottom-right quadrants

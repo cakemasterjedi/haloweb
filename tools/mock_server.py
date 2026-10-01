@@ -36,7 +36,7 @@ state = {
     "night": False, "rtc": True, "clock": None, "imu": True, "motionReact": 0, "doubleTap": 0,
     "levelSet": False, "moving": False, "jolt": 0.03, "boost": 0.0,
     "welcomeOn": 0, "welcomeSlot": 0, "welcomeSens": 2, "restMin": 0, "resting": False,
-    "rules": "", "activeRule": -1,
+    "rules": "", "activeRule": -1, "motionOff": 0, "resetReason": "power on", "safeMode": False, "uptime": 75,
 }
 tz_min = 0
 clock_offset = None  # phone time - server time, once set
@@ -46,7 +46,7 @@ LIMITS = {"mode": (0, 4), "brightness": (5, 100), "speed": (-100, 100), "imageSl
           "voltSource": (0, 2), "cycleItems": (0, 0x3FFFF), "cycleSec": (0, 3600), "animSpeed": (25, 300),
           "bootSlot": (0, 10), "fades": (0, 1), "autoDim": (0, 1), "nightBrightness": (5, 100),
           "nightFrom": (0, 1439), "nightTo": (0, 1439), "motionReact": (0, 100), "doubleTap": (0, 3),
-          "welcomeOn": (0, 1), "welcomeSlot": (0, 10), "welcomeSens": (1, 3), "restMin": (0, 240)}
+          "welcomeOn": (0, 1), "motionOff": (0, 1), "welcomeSlot": (0, 10), "welcomeSens": (1, 3), "restMin": (0, 240)}
 
 
 def refresh():

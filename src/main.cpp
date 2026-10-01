@@ -21,6 +21,7 @@
 #include <esp_sntp.h>
 
 #include "display_config.h"
+#include "i2c_bus.h"
 #include "motion.h"
 #include "renderer.h"
 #include "rtc_clock.h"
@@ -51,6 +52,11 @@ static uint32_t shutdownAt = 0;
 // Power management state.
 enum SleepReason : uint8_t { SLEEP_NONE = 0, SLEEP_OFF, SLEEP_LOWV };
 RTC_DATA_ATTR static uint8_t sleepReason = SLEEP_NONE;  // survives deep sleep
+// Crashes in a row (kept over restarts, cleared after a minute of running).
+// After two, the newer extras stay off ("safe mode") so the page still works.
+RTC_NOINIT_ATTR static uint32_t crashCount;
+static bool safeMode = false;
+static const char *resetReason = "";
 static float volts = NAN;          // smoothed battery voltage, NAN if unknown
 static uint32_t lastActivity = 0;  // last change made from the phone
 static uint32_t showStart = 0;     // when car show mode started
@@ -466,8 +472,8 @@ static void loadSettings() {
         if (current || older) {
             // Version 5's default blue was darker.
             if (stored.version == 5 && stored.quadA == 0x1C69D4) stored.quadA = CLASSIC_BLUE;
+            if (stored.version == 5) stored.motionOff = 0;  // was showIp
             stored.version = SETTINGS_VERSION;
-            stored.unused = 0;
             settings = stored;
         }
     }
@@ -491,6 +497,7 @@ static float readRawVolts() {
             return mv / 16 / 1000.0f * BAT_DIVIDER;
         }
         case VOLT_INA219: {
+            I2CLock lock;
             Wire.beginTransmission(INA219_ADDR);
             Wire.write(0x02);  // bus voltage register
             if (Wire.endTransmission(false) != 0 || Wire.requestFrom(INA219_ADDR, 2) != 2) return NAN;
@@ -907,6 +914,10 @@ static void sendState() {
     }
     // Motion sensor
     j += ",\"imu\":" + String(motionPresent() ? "true" : "false");
+    j += ",\"motionOff\":" + String(settings.motionOff);
+    j += ",\"resetReason\":\"" + String(resetReason) + "\"";
+    j += ",\"safeMode\":" + String(safeMode ? "true" : "false");
+    j += ",\"uptime\":" + String(millis() / 1000);
     j += ",\"motionReact\":" + String(settings.motionReact);
     j += ",\"doubleTap\":" + String(settings.doubleTap);
     j += ",\"levelSet\":" + String(settings.levelSign ? "true" : "false");
@@ -1048,6 +1059,11 @@ static void handleSet() {
     if (argInt("motionReact", 0, 100, v)) settings.motionReact = v;
     if (argInt("doubleTap", 0, 3, v)) settings.doubleTap = v;
     motionSetTapSensitivity(settings.doubleTap);
+    if (argInt("motionOff", 0, 1, v)) {
+        settings.motionOff = v;
+        if (!v && !safeMode && !motionPresent()) motionBegin();  // first time on since start-up
+        motionSetEnabled(!v);
+    }
     if (argInt("welcomeOn", 0, 1, v)) settings.welcomeOn = v;
     if (argInt("welcomeSlot", 0, IMAGE_SLOTS, v)) settings.welcomeSlot = v;
     if (argInt("welcomeSens", 1, 3, v)) settings.welcomeSens = v;
@@ -1429,9 +1445,18 @@ void setup() {
 #endif
     loadSettings();
     checkLowVoltageWake();  // may go straight back to sleep
+    const esp_reset_reason_t why = esp_reset_reason();
+    const bool crashed = why == ESP_RST_PANIC || why == ESP_RST_INT_WDT || why == ESP_RST_TASK_WDT ||
+                         why == ESP_RST_WDT || why == ESP_RST_BROWNOUT;
+    if (why == ESP_RST_POWERON || crashCount > 100) crashCount = 0;
+    crashCount = crashed ? crashCount + 1 : 0;
+    safeMode = crashCount >= 2;
+    resetReason = why == ESP_RST_POWERON ? "power on" : why == ESP_RST_SW ? "restart" : why == ESP_RST_DEEPSLEEP ? "wake from off"
+                : why == ESP_RST_PANIC ? "crash" : why == ESP_RST_BROWNOUT ? "power dip (brownout)"
+                : (why == ESP_RST_INT_WDT || why == ESP_RST_TASK_WDT || why == ESP_RST_WDT) ? "froze (watchdog)" : "other";
     sleepReason = SLEEP_NONE;
     delay(300);
-    logf("\n=== Emblem starting ===\n");
+    logf("\n=== Emblem starting (%s%s) ===\n", resetReason, safeMode ? ", SAFE MODE" : "");
     if (!LittleFS.begin(true)) logf("LittleFS mount failed\n");
 
     // Wi-Fi first: even if the display fails, the phone page stays reachable.
@@ -1439,9 +1464,12 @@ void setup() {
     setupWeb();
     setupDisplay();
     setupSD();
-    Wire.setClock(400000);
     logf(rtcBegin() ? "Clock: set\n" : rtcPresent() ? "Clock: not set yet\n" : "Clock chip not found\n");
-    logf(motionBegin() ? "Motion sensor found\n" : "Motion sensor not found\n");
+    if (safeMode) {
+        logf("Safe mode after %u crashes: motion sensor and start-up animation off\n", unsigned(crashCount));
+    } else if (!settings.motionOff) {
+        logf(motionBegin() ? "Motion sensor found\n" : "Motion sensor not found\n");
+    }
     motionSetTapSensitivity(settings.doubleTap);
     nightNow = nightTime();
     applyBrightness();
@@ -1451,7 +1479,8 @@ void setup() {
     activeRule = dateRuleNow();
     refreshDisplay(false);
     // Start-up: the built-in animation or a picture slot's clip.
-    if (settings.startupAnim) playClip(settings.bootSlot);
+    if (settings.startupAnim && !safeMode) playClip(settings.bootSlot);
+    logf("Start-up done\n");
     lastActivity = showStart = cycleAt = millis();
     cycleAt += settings.cycleSec * 1000u;
 }
@@ -1523,6 +1552,10 @@ void loop() {
         if (!r.empty()) present(r);
     }
 
+    if (crashCount && now > 60000) {
+        crashCount = 0;  // running fine
+        logf("Running for a minute: crash counter cleared\n");
+    }
     static uint32_t lastPowerTick = 0;
     if (now - lastPowerTick >= 1000) {
         lastPowerTick = now;
