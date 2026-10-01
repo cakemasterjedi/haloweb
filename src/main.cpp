@@ -469,15 +469,16 @@ static void stepAnimation(uint32_t now) {
 static void loadSettings() {
     settingsDefaults(settings);
     prefs.begin("emblem", false);
-    // Versions 5-7 are the first part of the current layout: the fields added
+    // Versions 5-8 are the first part of the current layout: the fields added
     // since keep their defaults.
     Settings stored;
     settingsDefaults(stored);
     const size_t len = prefs.getBytesLength("s");
-    if ((len == sizeof(Settings) || len == SETTINGS_V7_SIZE || len == SETTINGS_V6_SIZE) &&
+    if ((len == sizeof(Settings) || len == SETTINGS_V8_SIZE || len == SETTINGS_V7_SIZE || len == SETTINGS_V6_SIZE) &&
         prefs.getBytes("s", &stored, len) == len) {
         const bool current = len == sizeof(Settings) && stored.version == SETTINGS_VERSION;
-        const bool older = (len == SETTINGS_V7_SIZE && stored.version == 7) ||
+        const bool older = (len == SETTINGS_V8_SIZE && stored.version == 8) ||
+                           (len == SETTINGS_V7_SIZE && stored.version == 7) ||
                            (len == SETTINGS_V6_SIZE && (stored.version == 5 || stored.version == 6));
         if (current || older) {
             // Version 5's default blue was darker.
@@ -867,6 +868,7 @@ static void sendState() {
     j += ",\"staSsid\":" + jsonString(settings.staSsid);
     j += ",\"staIp\":\"" + (WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString() : String()) + "\"";
     j += ",\"panel\":" + String(settings.panel);
+    j += ",\"lcdOtherCore\":" + String(settings.lcdOtherCore);
     j += ",\"panels\":[";
     for (int i = 0; i < PANEL_TYPE_COUNT; i++) {
         if (i) j += ",";
@@ -1071,6 +1073,7 @@ static void handleSet() {
     if (argInt("motionReact", 0, 100, v)) settings.motionReact = v;
     if (argInt("doubleTap", 0, 3, v)) settings.doubleTap = v;
     motionSetTapSensitivity(settings.doubleTap);
+    if (argInt("lcdOtherCore", 0, 1, v)) settings.lcdOtherCore = v;  // used from the next start
     if (argInt("motionOff", 0, 1, v)) {
         settings.motionOff = v;
         if (!v && !safeMode && !motionPresent()) motionBegin();  // first time on since start-up
@@ -1360,6 +1363,7 @@ static void setupWeb() {
         shutdownAt = millis() + 600;
     });
     server.on("/api/reboot", HTTP_POST, [] {
+        if (saveAt) saveSettings();  // don't lose a change made just before
         server.send(200, "text/plain", "Restarting...");
         restartAt = millis() + 500;
     });
@@ -1428,7 +1432,28 @@ static void setupDisplay() {
         return;
     }
     logf("Panel set-up commands sent\n");
-    panel = createPanel(panelIndex);
+    if (settings.lcdOtherCore && !safeMode) {
+        // The driver's interrupts (which copy the picture to the panel ~65
+        // times a second) run on the core that creates it: put them on core 0
+        // so the drawing on core 1 gets its core to itself.
+        struct Args {
+            uint8_t index;
+            esp_lcd_panel_handle_t panel;
+            SemaphoreHandle_t done;
+        } args = {panelIndex, nullptr, xSemaphoreCreateBinary()};
+        xTaskCreatePinnedToCore([](void *p) {
+            Args *a = static_cast<Args *>(p);
+            a->panel = createPanel(a->index);
+            xSemaphoreGive(a->done);
+            vTaskDelete(nullptr);
+        }, "panel", 4096, &args, 5, nullptr, 0);
+        xSemaphoreTake(args.done, portMAX_DELAY);
+        vSemaphoreDelete(args.done);
+        panel = args.panel;
+        logf("Display output on core 0\n");
+    } else {
+        panel = createPanel(panelIndex);
+    }
     if (!panel) {
         logf("Display init failed (RGB panel)\n");
         return;

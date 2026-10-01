@@ -425,6 +425,8 @@
         <select id="bootSel"></select></div>
       <div class="row"><label for="fades">Smooth transitions<span class="sub">Crossfade when the design changes</span></label>
         <label class="switch"><input type="checkbox" id="fades"><span></span></label></div>
+      <div class="row"><label for="lcdOtherCore">Faster drawing<span class="sub">Display output on the other processor core. Turn off if the picture shifts sideways</span></label>
+        <label class="switch"><input type="checkbox" id="lcdOtherCore"><span></span></label></div>
       <div class="row"><label for="panel">Panel timing</label><select id="panel"></select></div>
       <div class="split">
         <button id="savePanel">Apply &amp; restart</button>
@@ -690,6 +692,7 @@ function fillControls() {
   $('panel').value = st.panel;
   fillBootSel();
   $('fades').checked = !!st.fades;
+  $('lcdOtherCore').checked = !!st.lcdOtherCore;
   $('cycleSec').value = st.cycleSec;
   $('autoDim').checked = !!st.autoDim;
   $('nightFrom').value = hhmm(st.nightFrom);
@@ -1006,6 +1009,16 @@ function setupSystem() {
     send(v === 'off' ? {startupAnim: 0} : {startupAnim: 1, bootSlot: +v});
   };
   $('fades').onchange = (e) => send({fades: e.target.checked ? 1 : 0});
+  $('lcdOtherCore').onchange = async (e) => {
+    st.lcdOtherCore = e.target.checked ? 1 : 0;
+    try {
+      await api('/api/set', new URLSearchParams({lcdOtherCore: st.lcdOtherCore}));
+      await api('/api/reboot', new URLSearchParams());
+    } catch (err) {}
+    toast('Restarting to apply…', 4000);
+    setOnline(false, 'Restarting…');
+    setTimeout(loadState, 7000);
+  };
   $('doubleTap').onchange = (e) => send({doubleTap: +e.target.value});
   $('welcomeOn').onchange = (e) => send({welcomeOn: e.target.checked ? 1 : 0});
   $('motionOn').onchange = (e) => send({motionOff: e.target.checked ? 0 : 1});
