@@ -1,5 +1,6 @@
 #include "renderer.h"
 
+#include <initializer_list>
 #include <math.h>
 #include <string.h>
 
@@ -194,7 +195,9 @@ void Renderer::apply(const Settings &s) {
 }
 
 void Renderer::startIntro(uint32_t) {
+    if (layer != LAYER_ROUNDEL) buildRoundelLayer();  // before the clock starts
     introT_ = 0;
+    introFirst_ = true;
 }
 
 void Renderer::imageChanged(bool valid) {
@@ -414,79 +417,161 @@ void Renderer::drawDisc(float phi) {
 // ---------------------------------------------------------------------------
 // Start-up animation
 
-void Renderer::drawIntro(float t, bool intoRoundel) {
-    if (layer != LAYER_ROUNDEL) buildRoundelLayer();
-
-    const float offset = s_.angle * PI_F / 180.0f;
-    const float offFrac = offset / (2 * PI_F);
-    const float ringP = t < 1.1f ? easeInOutCubic(t / 1.1f) : 1.0f;       // ring sweep
-    const float discT = clamp01((t - 0.75f) / 1.35f);                      // quarters
-    const float discS = discT > 0 ? easeOutBack(discT) : 0;                // disc size
-    const float phi = offset - (1 - easeOutCubic(discT)) * 2.5f * 2 * PI_F;
-    const float glintT = (t - 2.1f) / 0.75f;                               // light sweep
-    const float glintC = -360 + 720 * glintT;
-    const float fade = intoRoundel ? 1.0f : 1.0f - clamp01((t - 2.95f) / 0.4f);
-    const int fade256 = int(fade * 256);
-    const float cs = cosf(phi), sn = sinf(phi);
-    const float rDisc2 = (R_DISC - 0.5f) * (R_DISC - 0.5f);
-    const float rIn2 = (R_DISC + 1) * (R_DISC + 1);
-    const int dx0 = int(CX) - DISC / 2, dy0 = int(CY) - DISC / 2;
-
-    for (int y = 0; y < H; y++) {
-        float fy = y + 0.5f - CY;
-        uint16_t *row = frame_ + y * W;
-        for (int x = 0; x < W; x++) {
-            float fx = x + 0.5f - CX;
-            float r2 = fx * fx + fy * fy;
-            uint16_t c = 0;
-            if (r2 >= 240.0f * 240.0f) {
-                row[x] = 0;
-                continue;
+// One pixel of the start-up animation for the parameters in p.
+inline uint16_t Renderer::introPixel(int x, int y, const IntroParams &p) const {
+    const float fx = x + 0.5f - CX, fy = y + 0.5f - CY;
+    const float r2 = fx * fx + fy * fy;
+    if (r2 >= 240.0f * 240.0f) return 0;
+    uint16_t c = 0;
+    if (r2 >= p.rDisc2) {
+        // Ring, letters and rims, revealed clockwise from the top.
+        uint16_t base = layer_[y * W + x];
+        if (r2 < p.rIn2 && p.discS <= 0) base = 0;  // disc edge pixels wait for the disc
+        if (p.ringP >= 1) {
+            c = base;
+        } else {
+            float af = angle_[y * W + x] / 65535.0f - p.offFrac;
+            af -= floorf(af);
+            const float vis = clamp01((p.ringP - af) * 60 + 0.5f);
+            c = scale565(base, int(vis * 256));
+            const float d = (af - p.ringP) * 70;
+            if (d > -3 && d < 3 && r2 > p.rIn2) {
+                const float e = expf(-d * d);
+                c = lighten565(c, int(e * 220 * vis + e * 60));
             }
-            if (r2 >= rDisc2) {
-                // Ring, letters and rims, revealed clockwise from the top.
-                uint16_t base = layer_[y * W + x];
-                if (r2 < rIn2 && discS <= 0) base = 0;  // disc edge pixels wait for the disc
-                if (ringP >= 1) {
-                    c = base;
-                } else {
-                    float af = angle_[y * W + x] / 65535.0f - offFrac;
-                    af -= floorf(af);
-                    float vis = clamp01((ringP - af) * 60 + 0.5f);
-                    c = scale565(base, int(vis * 256));
-                    float d = (af - ringP) * 70;
-                    if (d > -3 && d < 3 && r2 > rIn2) {
-                        c = lighten565(c, int(expf(-d * d) * 220 * vis + expf(-d * d) * 60));
-                    }
-                }
-            } else if (discS > 0) {
-                // Quarters growing from the centre while spinning into place.
-                float sx = fx / discS, sy = fy / discS;
-                if (sx * sx + sy * sy < rDisc2) {
-                    int ix = int(sx + CX) - dx0, iy = int(sy + CY) - dy0;
-                    ix = ix < 0 ? 0 : (ix >= DISC ? DISC - 1 : ix);
-                    iy = iy < 0 ? 0 : (iy >= DISC ? DISC - 1 : iy);
-                    const int i = iy * DISC + ix;
-                    float u = sx * cs + sy * sn;
-                    float v = -sx * sn + sy * cs;
-                    bool a = (u * v) > 0;
-                    float d = fminf(fabsf(u), fabsf(v)) * discS;
-                    c = a ? discA_[i] : discB_[i];
-                    if (d < DIVIDER + 0.5f) c = blend565(c, divider_, int(clamp01(DIVIDER + 0.5f - d) * 256));
-                } else {
-                    c = 0;
-                }
-            }
-            if (glintT > 0 && glintT < 1 && c) {
-                float d = (fx + fy) * 0.7071f - glintC;
-                if (d > -60 && d < 60) {
-                    float g = 1 - (d / 60) * (d / 60);
-                    c = lighten565(c, int(g * g * 120));
-                }
-            }
-            row[x] = fade256 >= 256 ? c : scale565(c, fade256);
+        }
+    } else if (p.discS > 0) {
+        // Quarters growing from the centre while spinning into place.
+        const float sx = fx * p.invS, sy = fy * p.invS;
+        if (sx * sx + sy * sy < p.rDisc2) {
+            int ix = int(sx + CX) - p.dx0, iy = int(sy + CY) - p.dy0;
+            ix = ix < 0 ? 0 : (ix >= DISC ? DISC - 1 : ix);
+            iy = iy < 0 ? 0 : (iy >= DISC ? DISC - 1 : iy);
+            const int i = iy * DISC + ix;
+            const float u = sx * p.cs + sy * p.sn;
+            const float v = -sx * p.sn + sy * p.cs;
+            const bool a = (u * v) > 0;
+            const float d = fminf(fabsf(u), fabsf(v)) * p.discS;
+            c = a ? discA_[i] : discB_[i];
+            if (d < DIVIDER + 0.5f) c = blend565(c, divider_, int(clamp01(DIVIDER + 0.5f - d) * 256));
         }
     }
+    if (p.glint && c) {
+        const float d = (fx + fy) * 0.7071f - p.glintC;
+        if (d > -60 && d < 60) {
+            const float g = 1 - (d / 60) * (d / 60);
+            c = lighten565(c, int(g * g * 120));
+        }
+    }
+    return p.fade256 >= 256 ? c : scale565(c, p.fade256);
+}
+
+void Renderer::introArea(const IntroParams &p, int x0, int y0, int x1, int y1) {
+    x0 = x0 < 0 ? 0 : x0;
+    y0 = y0 < 0 ? 0 : y0;
+    x1 = x1 > W ? W : x1;
+    y1 = y1 > H ? H : y1;
+    for (int y = y0; y < y1; y++) {
+        uint16_t *row = frame_ + y * W;
+        for (int x = x0; x < x1; x++) row[x] = introPixel(x, y, p);
+    }
+}
+
+static Rect unite(Rect a, Rect b) {
+    if (a.empty()) return b;
+    if (b.empty()) return a;
+    const int x0 = a.x < b.x ? a.x : b.x, y0 = a.y < b.y ? a.y : b.y;
+    const int x1 = a.x + a.w > b.x + b.w ? a.x + a.w : b.x + b.w;
+    const int y1 = a.y + a.h > b.y + b.h ? a.y + a.h : b.y + b.h;
+    return {int16_t(x0), int16_t(y0), int16_t(x1 - x0), int16_t(y1 - y0)};
+}
+
+// Start-up animation. Only the parts that change are redrawn (the slice the
+// ring sweep just passed, the disc, the band of the glint), so it runs at a
+// good frame rate. Returns the area that changed.
+Rect Renderer::drawIntro(float t, bool intoRoundel) {
+    if (layer != LAYER_ROUNDEL) buildRoundelLayer();
+
+    IntroParams p;
+    const float offset = s_.angle * PI_F / 180.0f;
+    p.offFrac = offset / (2 * PI_F);
+    p.ringP = t < 1.1f ? easeInOutCubic(t / 1.1f) : 1.0f;    // ring sweep
+    const float discT = clamp01((t - 0.75f) / 1.35f);          // quarters
+    p.discS = discT > 0 ? easeOutBack(discT) : 0;              // disc size
+    p.invS = p.discS > 0 ? 1 / p.discS : 0;
+    const float phi = offset - (1 - easeOutCubic(discT)) * 2.5f * 2 * PI_F;
+    p.cs = cosf(phi);
+    p.sn = sinf(phi);
+    const float glintT = (t - 2.1f) / 0.75f;                   // light sweep
+    p.glint = glintT > 0 && glintT < 1;
+    p.glintC = -360 + 720 * glintT;
+    const float fade = intoRoundel ? 1.0f : 1.0f - clamp01((t - 2.95f) / 0.4f);
+    p.fade256 = int(fade * 256);
+    p.rDisc2 = (R_DISC - 0.5f) * (R_DISC - 0.5f);
+    p.rIn2 = (R_DISC + 1) * (R_DISC + 1);
+    p.dx0 = int(CX) - DISC / 2;
+    p.dy0 = int(CY) - DISC / 2;
+
+    const IntroParams q = introPrev_;
+    introPrev_ = p;
+    if (introFirst_ || p.fade256 < 256 || q.fade256 < 256) {
+        introFirst_ = false;
+        introArea(p, 0, 0, W, H);
+        return {0, 0, W, H};
+    }
+
+    Rect changed = {0, 0, 0, 0};
+    // Ring sweep: the slice between last frame's edge and this one's (with
+    // room for the soft edge and the spark).
+    if (p.ringP < 1 || q.ringP < 1) {
+        const float a0 = (q.ringP - 0.05f < 0 ? 0 : q.ringP - 0.05f) + p.offFrac;
+        const float a1 = (p.ringP + 0.05f > 1 ? 1 : p.ringP + 0.05f) + p.offFrac;
+        float bx0 = 1e9f, by0 = 1e9f, bx1 = -1e9f, by1 = -1e9f;
+        const int n = 8 + int((a1 - a0) * 64);
+        for (int i = 0; i <= n; i++) {
+            const float a = (a0 + (a1 - a0) * i / n) * 2 * PI_F;
+            for (float r : {R_DISC - 2.0f, 240.0f}) {
+                const float x = CX + r * sinf(a), y = CY - r * cosf(a);
+                bx0 = fminf(bx0, x);
+                by0 = fminf(by0, y);
+                bx1 = fmaxf(bx1, x);
+                by1 = fmaxf(by1, y);
+            }
+        }
+        const Rect box = {int16_t(bx0 - 8), int16_t(by0 - 8), int16_t(bx1 - bx0 + 16), int16_t(by1 - by0 + 16)};
+        introArea(p, box.x, box.y, box.x + box.w, box.y + box.h);
+        changed = unite(changed, box);
+    }
+    // Disc: whenever it grows or turns (it also uncovers the inner rim's edge).
+    if (p.discS != q.discS || p.cs != q.cs || p.sn != q.sn) {
+        const int r = int(R_DISC) + 3;
+        const Rect box = {int16_t(CX - r), int16_t(CY - r), int16_t(2 * r), int16_t(2 * r)};
+        introArea(p, box.x, box.y, box.x + box.w, box.y + box.h);
+        changed = unite(changed, box);
+    }
+    // Glint: the band where it is now and where it was (to clean up behind it).
+    if (p.glint || q.glint) {
+        float lo = 1e9f, hi = -1e9f;
+        if (p.glint) {
+            lo = fminf(lo, p.glintC);
+            hi = fmaxf(hi, p.glintC);
+        }
+        if (q.glint) {
+            lo = fminf(lo, q.glintC);
+            hi = fmaxf(hi, q.glintC);
+        }
+        // Band: |(fx + fy) * 0.7071 - c| < 60  ->  fx between these, per row.
+        const float k = 1 / 0.7071f;
+        for (int y = 0; y < H; y++) {
+            const float fy = y + 0.5f - CY;
+            const int x0 = int(floorf((lo - 60) * k - fy + CX - 2));
+            const int x1 = int(ceilf((hi + 60) * k - fy + CX + 2));
+            if (x1 <= 0 || x0 >= W) continue;
+            introArea(p, x0, y, x1, y + 1);
+        }
+        changed = {0, 0, W, H};
+    }
+    return changed;
 }
 
 // ---------------------------------------------------------------------------
@@ -748,10 +833,7 @@ Rect Renderer::render(uint32_t ms) {
         const bool intoRoundel = s_.mode == MODE_ROUNDEL || s_.mode == MODE_SPIN;
         const float t = introT_;
         introT_ += dt < 0.1f ? dt : 0.1f;
-        if (t < (intoRoundel ? 2.9f : 3.4f)) {
-            drawIntro(t, intoRoundel);
-            return full;
-        }
+        if (t < (intoRoundel ? 2.9f : 3.4f)) return drawIntro(t, intoRoundel);
         introT_ = -1;
         phase_ = 0;
         dirty_ = true;

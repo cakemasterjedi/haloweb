@@ -88,7 +88,16 @@ private:
     void drawStripes(float offset, bool repeat);
     void drawText();
     void drawImage();
-    void drawIntro(float t, bool intoRoundel);
+    // Start-up animation parameters for one frame.
+    struct IntroParams {
+        float offFrac = 0, ringP = 0, discS = 0, invS = 0, cs = 1, sn = 0, glintC = 0;
+        float rDisc2 = 0, rIn2 = 0;
+        int fade256 = 256, dx0 = 0, dy0 = 0;
+        bool glint = false;
+    };
+    Rect drawIntro(float t, bool intoRoundel);
+    uint16_t introPixel(int x, int y, const IntroParams &p) const;
+    void introArea(const IntroParams &p, int x0, int y0, int x1, int y1);
     void rotateInto(uint16_t *dst, const uint16_t *src, float degrees);
 
     Settings s_;
@@ -106,6 +115,8 @@ private:
     bool dirty_ = true;
     uint32_t lastMs_ = 0;
     float introT_ = -1;  // seconds into the start-up animation, -1 = not playing
+    bool introFirst_ = false;
+    IntroParams introPrev_;
     float phase_ = 0;  // radians (spin) or pixels (stripes)
     float boost_ = 1;
     uint16_t divider_ = 0;  // lines between the quarters
