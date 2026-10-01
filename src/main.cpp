@@ -764,6 +764,7 @@ static void playClip(uint8_t slot) {
         refreshDisplay(true);
     } else {
         clipPlaying = false;
+        resyncDisplay();  // the slot list was just read from storage
         renderer.startIntro(millis());
     }
 }

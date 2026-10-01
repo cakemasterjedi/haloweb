@@ -193,8 +193,8 @@ void Renderer::apply(const Settings &s) {
     layer = LAYER_NONE;  // colours may have changed
 }
 
-void Renderer::startIntro(uint32_t ms) {
-    introStart_ = ms ? ms : 1;
+void Renderer::startIntro(uint32_t) {
+    introT_ = 0;
 }
 
 void Renderer::imageChanged(bool valid) {
@@ -737,18 +737,22 @@ Rect Renderer::showMessage(const char *text, uint32_t fg) {
 Rect Renderer::render(uint32_t ms) {
     const Rect full = {0, 0, W, H};
     const Rect disc = {int16_t(CX - R_DISC), int16_t(CY - R_DISC), int16_t(2 * R_DISC), int16_t(2 * R_DISC)};
-    float dt = lastMs_ ? (ms - lastMs_) / 1000.0f : 0;
+    float dt = lastMs_ && int32_t(ms - lastMs_) > 0 ? (ms - lastMs_) / 1000.0f : 0;
     if (dt > 0.2f) dt = 0.2f;  // don't jump after a stall
     lastMs_ = ms;
 
-    if (introStart_) {
+    if (introT_ >= 0) {
+        // The animation's own clock: it advances by at most 0.1 s per frame,
+        // so a slow frame (start-up, storage, Wi-Fi) pauses it rather than
+        // skipping ahead to the end.
         const bool intoRoundel = s_.mode == MODE_ROUNDEL || s_.mode == MODE_SPIN;
-        const float t = (ms - introStart_) / 1000.0f;
+        const float t = introT_;
+        introT_ += dt < 0.1f ? dt : 0.1f;
         if (t < (intoRoundel ? 2.9f : 3.4f)) {
             drawIntro(t, intoRoundel);
             return full;
         }
-        introStart_ = 0;
+        introT_ = -1;
         phase_ = 0;
         dirty_ = true;
     }
