@@ -1592,12 +1592,28 @@ void loop() {
     if (displayOk && now - lastFrame >= FRAME_MS && !(resting && brightNow <= 0)) {
         lastFrame = now;
         rampBrightness();
+        // Start-up animation frame rate, for the log.
+        static uint32_t introFrames = 0, introMs = 0, introMax = 0;
+        const bool introFrame = renderer.introRunning();
+        const uint32_t frameStart = millis();
         Rect r = renderer.render(now);
         if (forceFull || fadeStart) {
             r = {0, 0, Renderer::W, Renderer::H};
             forceFull = false;
         }
         if (!r.empty()) present(r);
+        if (introFrame) {
+            const uint32_t ms = millis() - frameStart;
+            introFrames++;
+            introMs += ms;
+            introMax = max(introMax, ms);
+            if (!renderer.introRunning()) {
+                logf("Start-up animation: %u frames, %u ms each on average (%.0f fps), slowest %u ms\n",
+                     unsigned(introFrames), unsigned(introMs / introFrames), 1000.0f * introFrames / max<uint32_t>(introMs, 1),
+                     unsigned(introMax));
+                introFrames = introMs = introMax = 0;
+            }
+        }
         slowCheck(t, "drawing");
     }
 
