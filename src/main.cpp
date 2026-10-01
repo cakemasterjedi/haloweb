@@ -1613,13 +1613,22 @@ void loop() {
         if (introFrame && !introFrames) presentCopyUs = presentSyncUs = presentWaitUs = 0;
         const uint32_t frameStart = millis();
         const uint32_t drawStart = micros();
-        Rect r = renderer.render(now);
+        // The start-up animation draws straight into the frame buffer that is
+        // shown next (no copy), unless dimming in software or crossfading.
+        uint16_t *target = introFrame && !softDim && !fadeStart && !forceFull ? fbs[backFb] : nullptr;
+        Rect r = renderer.render(now, target);
         if (introFrame) introDrawUs += micros() - drawStart;
         if (forceFull || fadeStart) {
             r = {0, 0, Renderer::W, Renderer::H};
             forceFull = false;
         }
-        if (!r.empty()) present(r);
+        if (renderer.drewIntoTarget()) {
+            if (framesShown++ == 0) logf("First emblem frame sent to the display\n");
+            lastDirty = {0, 0, Renderer::W, Renderer::H};  // frame() is behind: copy it all next time
+            swapBuffers(r.y, r.h);
+        } else if (!r.empty()) {
+            present(r);
+        }
         if (introFrame) {
             const uint32_t ms = millis() - frameStart;
             introFrames++;

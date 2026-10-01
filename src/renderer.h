@@ -35,7 +35,11 @@ public:
 
     // Draws the frame for time ms. Returns the part of frame() that changed
     // (empty when nothing did).
-    Rect render(uint32_t ms);
+    // introTarget: during the start-up animation, draw straight into this
+    // frame buffer (the one about to be shown) instead of frame(); see
+    // drewIntoTarget().
+    Rect render(uint32_t ms, uint16_t *introTarget = nullptr);
+    bool drewIntoTarget() const { return drewIntoTarget_; }
     const uint16_t *frame() const { return frame_; }
 
     // Speeds up the moving modes (spin, stripes) by this factor, e.g. when the
@@ -45,6 +49,16 @@ public:
     // Draws a full-screen message (e.g. before shutting down) straight away.
     // The next render() goes back to the selected mode.
     Rect showMessage(const char *text, uint32_t fg);
+
+public:
+    // Parts of the start-up animation that changed in a frame.
+    struct IntroRegions {
+        bool sweep = false;
+        float sweepFrom = 0, sweepTo = 0;  // ring sweep slice, turns from the top
+        float discR = 0;                   // disc radius, 0 = unchanged
+        bool glint = false;
+        float glintLo = 0, glintHi = 0;    // glint band centres
+    };
 
 private:
     struct Seg {
@@ -95,9 +109,8 @@ private:
         int fade256 = 256, dx0 = 0, dy0 = 0;
         bool glint = false;
     };
-    Rect drawIntro(float t, bool intoRoundel);
+    Rect drawIntro(float t, bool intoRoundel, uint16_t *target);
     uint16_t introPixel(int x, int y, const IntroParams &p) const;
-    void introArea(const IntroParams &p, int x0, int y0, int x1, int y1);
     void rotateInto(uint16_t *dst, const uint16_t *src, float degrees);
 
     Settings s_;
@@ -115,7 +128,9 @@ private:
     bool dirty_ = true;
     uint32_t lastMs_ = 0;
     float introT_ = -1;  // seconds into the start-up animation, -1 = not playing
-    bool introFirst_ = false;
+    int introClear_ = 0;  // frame buffers still to clear at the start of the animation
+    IntroRegions introRegionsPrev_;
+    bool drewIntoTarget_ = false;
     IntroParams introPrev_;
     float phase_ = 0;  // radians (spin) or pixels (stripes)
     float boost_ = 1;

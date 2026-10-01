@@ -197,7 +197,8 @@ void Renderer::apply(const Settings &s) {
 void Renderer::startIntro(uint32_t) {
     if (layer != LAYER_ROUNDEL) buildRoundelLayer();  // before the clock starts
     introT_ = 0;
-    introFirst_ = true;
+    introClear_ = 2;
+    introRegionsPrev_ = {};
 }
 
 void Renderer::imageChanged(bool valid) {
@@ -483,17 +484,6 @@ inline uint16_t Renderer::introPixel(int x, int y, const IntroParams &p) const {
     return p.fade256 >= 256 ? c : scale565(c, p.fade256);
 }
 
-void Renderer::introArea(const IntroParams &p, int x0, int y0, int x1, int y1) {
-    x0 = x0 < 0 ? 0 : x0;
-    y0 = y0 < 0 ? 0 : y0;
-    x1 = x1 > W ? W : x1;
-    y1 = y1 > H ? H : y1;
-    for (int y = y0; y < y1; y++) {
-        uint16_t *row = frame_ + y * W;
-        for (int x = x0; x < x1; x++) row[x] = introPixel(x, y, p);
-    }
-}
-
 // Limits a rectangle to the screen.
 static Rect clip(Rect r) {
     int x0 = r.x < 0 ? 0 : r.x, y0 = r.y < 0 ? 0 : r.y;
@@ -514,11 +504,31 @@ static Rect unite(Rect a, Rect b) {
     return {int16_t(x0), int16_t(y0), int16_t(x1 - x0), int16_t(y1 - y0)};
 }
 
-// Start-up animation. Only the parts that change are redrawn (the slice the
-// ring sweep just passed, the disc, the band of the glint), so it runs at a
-// good frame rate. Returns the area that changed.
-Rect Renderer::drawIntro(float t, bool intoRoundel) {
+// Merges the parts of the animation that change in two frames.
+static Renderer::IntroRegions merge(const Renderer::IntroRegions &a, const Renderer::IntroRegions &b) {
+    Renderer::IntroRegions m = a;
+    if (b.sweep) {
+        m.sweepFrom = a.sweep ? fminf(a.sweepFrom, b.sweepFrom) : b.sweepFrom;
+        m.sweepTo = a.sweep ? fmaxf(a.sweepTo, b.sweepTo) : b.sweepTo;
+        m.sweep = true;
+    }
+    m.discR = fmaxf(a.discR, b.discR);
+    if (b.glint) {
+        m.glintLo = a.glint ? fminf(a.glintLo, b.glintLo) : b.glintLo;
+        m.glintHi = a.glint ? fmaxf(a.glintHi, b.glintHi) : b.glintHi;
+        m.glint = true;
+    }
+    return m;
+}
+
+// Start-up animation. Only what changes is redrawn: the slice the ring sweep
+// passed, the disc while it grows and turns, the band of the glint. With a
+// target (the frame buffer about to be shown, last drawn two frames ago) the
+// changes of this and the previous frame are drawn straight into it, which
+// saves copying the frame. Returns the area that changed.
+Rect Renderer::drawIntro(float t, bool intoRoundel, uint16_t *target) {
     if (layer != LAYER_ROUNDEL) buildRoundelLayer();
+    uint16_t *out = target ? target : frame_;
 
     IntroParams p;
     const float offset = s_.angle * PI_F / 180.0f;
@@ -542,25 +552,55 @@ Rect Renderer::drawIntro(float t, bool intoRoundel) {
 
     IntroParams q = introPrev_;
     introPrev_ = p;
-    Rect changed = {0, 0, 0, 0};
-    if (introFirst_) {
-        // At the start everything is black apart from the beginning of the
-        // ring sweep: clear the frame, then draw just that slice.
-        introFirst_ = false;
-        memset(frame_, 0, size_t(W) * H * 2);
-        q = p;
-        q.ringP = 0;
-        changed = {0, 0, W, H};
-    } else if (p.fade256 < 256 || q.fade256 < 256) {
-        introArea(p, 0, 0, W, H);
+    if (p.fade256 < 256 || q.fade256 < 256) {
+        // Fading out into another mode: everything changes.
+        for (int y = 0; y < H; y++) {
+            uint16_t *row = out + y * W;
+            for (int x = 0; x < W; x++) row[x] = introPixel(x, y, p);
+        }
+        introRegionsPrev_ = {};
         return {0, 0, W, H};
     }
 
-    // Ring sweep: the slice between last frame's edge and this one's (with
-    // room for the soft edge and the spark).
+    // Both frame buffers start from black (each is cleared the first time).
+    Rect changed = {0, 0, 0, 0};
+    if (introClear_ > 0) {
+        introClear_--;
+        memset(out, 0, size_t(W) * H * 2);
+        if (introClear_ == 1 || !target) {  // very first frame
+            q = p;
+            q.ringP = 0;
+            introRegionsPrev_ = {};
+        }
+        changed = {0, 0, W, H};
+    }
+
+    // What changes from the last frame to this one.
+    IntroRegions cur;
     if (p.ringP < 1 || q.ringP < 1) {
-        const float a0 = (q.ringP - 0.05f < 0 ? 0 : q.ringP - 0.05f) + p.offFrac;
-        const float a1 = (p.ringP + 0.05f > 1 ? 1 : p.ringP + 0.05f) + p.offFrac;
+        cur.sweep = true;
+        cur.sweepFrom = q.ringP - 0.05f < 0 ? 0 : q.ringP - 0.05f;
+        cur.sweepTo = p.ringP + 0.05f > 1 ? 1 : p.ringP + 0.05f;
+    }
+    if (p.discS != q.discS || p.cs != q.cs || p.sn != q.sn) {
+        // While the disc grows only its current size changes; the first time
+        // it appears the inner rim's edge is uncovered too.
+        const float grow = q.discS > 0 ? fminf(1.0f, fmaxf(p.discS, q.discS)) : 1.0f;
+        cur.discR = R_DISC * grow + 3;
+    }
+    if (p.glint || q.glint) {
+        cur.glint = true;
+        cur.glintLo = fminf(p.glint ? p.glintC : q.glintC, q.glint ? q.glintC : p.glintC);
+        cur.glintHi = fmaxf(p.glint ? p.glintC : q.glintC, q.glint ? q.glintC : p.glintC);
+    }
+    // Drawing into a frame buffer: it also needs the previous frame's changes.
+    const IntroRegions draw = target ? merge(cur, introRegionsPrev_) : cur;
+    introRegionsPrev_ = cur;
+
+    const float R_OUT2 = 240.0f * 240.0f;
+    // Ring sweep: pixels of the ring whose angle lies in the swept slice.
+    if (draw.sweep) {
+        const float a0 = draw.sweepFrom + p.offFrac, a1 = draw.sweepTo + p.offFrac;
         float bx0 = 1e9f, by0 = 1e9f, bx1 = -1e9f, by1 = -1e9f;
         const int n = 8 + int((a1 - a0) * 64);
         for (int i = 0; i <= n; i++) {
@@ -573,39 +613,58 @@ Rect Renderer::drawIntro(float t, bool intoRoundel) {
                 by1 = fmaxf(by1, y);
             }
         }
-        const Rect box = {int16_t(bx0 - 8), int16_t(by0 - 8), int16_t(bx1 - bx0 + 16), int16_t(by1 - by0 + 16)};
-        introArea(p, box.x, box.y, box.x + box.w, box.y + box.h);
+        const Rect box = clip({int16_t(bx0 - 8), int16_t(by0 - 8), int16_t(bx1 - bx0 + 16), int16_t(by1 - by0 + 16)});
+        const float lo = draw.sweepFrom - 0.002f, hi = draw.sweepTo + 0.002f;
+        for (int y = box.y; y < box.y + box.h; y++) {
+            const float fy = y + 0.5f - CY;
+            uint16_t *row = out + y * W;
+            const uint16_t *ang = angle_ + y * W;
+            for (int x = box.x; x < box.x + box.w; x++) {
+                const float fx = x + 0.5f - CX;
+                const float r2 = fx * fx + fy * fy;
+                if (r2 < p.rDisc2 || r2 >= R_OUT2) continue;
+                float af = ang[x] * (1 / 65535.0f) - p.offFrac;
+                af -= floorf(af);
+                if (af < lo || af > hi) continue;
+                row[x] = introPixel(x, y, p);
+            }
+        }
         changed = unite(changed, box);
     }
-    // Disc: whenever it grows or turns (it also uncovers the inner rim's edge).
-    if (p.discS != q.discS || p.cs != q.cs || p.sn != q.sn) {
-        // While the disc grows only its current size changes; the first time it
-        // appears the inner rim's edge is uncovered too, so do the lot.
-        const float grow = q.discS > 0 ? fminf(1.0f, fmaxf(p.discS, q.discS)) : 1.0f;
-        const int r = int(ceilf(R_DISC * grow)) + 3;
-        const Rect box = {int16_t(CX - r), int16_t(CY - r), int16_t(2 * r), int16_t(2 * r)};
-        introArea(p, box.x, box.y, box.x + box.w, box.y + box.h);
-        changed = unite(changed, box);
+    // Disc: the round area that grows / turns.
+    if (draw.discR > 0) {
+        const float rr = fminf(draw.discR, R_DISC + 3);
+        const int y0 = int(CY - rr), y1 = int(ceilf(CY + rr));
+        for (int y = y0 < 0 ? 0 : y0; y < (y1 > H ? H : y1); y++) {
+            const float fy = y + 0.5f - CY;
+            const float h2 = rr * rr - fy * fy;
+            if (h2 <= 0) continue;
+            const float half = sqrtf(h2) + 1;
+            int x0 = int(CX - half), x1 = int(ceilf(CX + half));
+            x0 = x0 < 0 ? 0 : x0;
+            x1 = x1 > W ? W : x1;
+            uint16_t *row = out + y * W;
+            for (int x = x0; x < x1; x++) row[x] = introPixel(x, y, p);
+        }
+        const int ri = int(ceilf(rr)) + 1;
+        changed = unite(changed, {int16_t(CX - ri), int16_t(CY - ri), int16_t(2 * ri), int16_t(2 * ri)});
     }
-    // Glint: the band where it is now and where it was (to clean up behind it).
-    if (p.glint || q.glint) {
-        float lo = 1e9f, hi = -1e9f;
-        if (p.glint) {
-            lo = fminf(lo, p.glintC);
-            hi = fmaxf(hi, p.glintC);
-        }
-        if (q.glint) {
-            lo = fminf(lo, q.glintC);
-            hi = fmaxf(hi, q.glintC);
-        }
-        // Band: |(fx + fy) * 0.7071 - c| < 60  ->  fx between these, per row.
+    // Glint: the band, within the badge.
+    if (draw.glint) {
         const float k = 1 / 0.7071f;
         for (int y = 0; y < H; y++) {
             const float fy = y + 0.5f - CY;
-            const int x0 = int(floorf((lo - 60) * k - fy + CX - 2));
-            const int x1 = int(ceilf((hi + 60) * k - fy + CX + 2));
-            if (x1 <= 0 || x0 >= W) continue;
-            introArea(p, x0, y, x1, y + 1);
+            const float h2 = R_OUT2 - fy * fy;
+            if (h2 <= 0) continue;
+            const float half = sqrtf(h2) + 1;
+            int x0 = int(floorf((draw.glintLo - 60) * k - fy + CX - 2));
+            int x1 = int(ceilf((draw.glintHi + 60) * k - fy + CX + 2));
+            x0 = x0 < int(CX - half) ? int(CX - half) : x0;
+            x1 = x1 > int(ceilf(CX + half)) ? int(ceilf(CX + half)) : x1;
+            x0 = x0 < 0 ? 0 : x0;
+            x1 = x1 > W ? W : x1;
+            uint16_t *row = out + y * W;
+            for (int x = x0; x < x1; x++) row[x] = introPixel(x, y, p);
         }
         changed = {0, 0, W, H};
     }
@@ -857,7 +916,8 @@ Rect Renderer::showMessage(const char *text, uint32_t fg) {
 
 // ---------------------------------------------------------------------------
 
-Rect Renderer::render(uint32_t ms) {
+Rect Renderer::render(uint32_t ms, uint16_t *introTarget) {
+    drewIntoTarget_ = false;
     const Rect full = {0, 0, W, H};
     const Rect disc = {int16_t(CX - R_DISC), int16_t(CY - R_DISC), int16_t(2 * R_DISC), int16_t(2 * R_DISC)};
     float dt = lastMs_ && int32_t(ms - lastMs_) > 0 ? (ms - lastMs_) / 1000.0f : 0;
@@ -871,7 +931,10 @@ Rect Renderer::render(uint32_t ms) {
         const bool intoRoundel = s_.mode == MODE_ROUNDEL || s_.mode == MODE_SPIN;
         const float t = introT_;
         introT_ += dt < 0.15f ? dt : 0.15f;
-        if (t < (intoRoundel ? 2.9f : 3.4f)) return drawIntro(t, intoRoundel);
+        if (t < (intoRoundel ? 2.9f : 3.4f)) {
+            drewIntoTarget_ = introTarget != nullptr;
+            return drawIntro(t, intoRoundel, introTarget);
+        }
         introT_ = -1;
         phase_ = 0;
         dirty_ = true;
