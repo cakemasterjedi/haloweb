@@ -36,7 +36,7 @@ struct DateRule {
     uint8_t mode;  // Mode
     uint8_t slot;  // picture slot for MODE_IMAGE
 };
-static const uint32_t SETTINGS_VERSION = 8;
+static const uint32_t SETTINGS_VERSION = 9;
 static const uint32_t CLASSIC_BLUE = 0x2C8BD6;  // default quarter colour
 
 struct Settings {
@@ -106,11 +106,15 @@ struct Settings {
     uint8_t welcomeSens;      // jolt sensitivity 1 (firm) .. 3 (light)
     uint8_t restMin;          // screen off after parked this long (minutes), 0 = never
     DateRule rules[DATE_RULES];
+
+    // Version 9.
+    alignas(4) uint8_t lcdOtherCore;  // run the display output on CPU core 0 (drawing gets core 1 to itself)
 };
 
 // Size of the stored settings before versions 7 and 8.
 static const size_t SETTINGS_V6_SIZE = offsetof(Settings, cycleItems);
 static const size_t SETTINGS_V7_SIZE = offsetof(Settings, welcomeOn);
+static const size_t SETTINGS_V8_SIZE = offsetof(Settings, lcdOtherCore);
 
 inline void settingsDefaults(Settings &s) {
     memset(&s, 0, sizeof(s));
@@ -168,6 +172,7 @@ inline void settingsDefaults(Settings &s) {
     s.welcomeSlot = 0;
     s.welcomeSens = 2;
     s.restMin = 0;
+    s.lcdOtherCore = 1;
 
     strcpy(s.apSsid, "BMW-Emblem");
     strcpy(s.apPass, "emblem123");
