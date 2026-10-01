@@ -1608,9 +1608,12 @@ void loop() {
         lastFrame = now;
         rampBrightness();
         // Start-up animation frame rate, for the log.
-        static uint32_t introFrames = 0, introMs = 0, introMax = 0, introDrawUs = 0;
+        static uint32_t introFrames = 0, introMs = 0, introMax = 0, introDrawUs = 0, introPx0 = 0;
         const bool introFrame = renderer.introRunning();
-        if (introFrame && !introFrames) presentCopyUs = presentSyncUs = presentWaitUs = 0;
+        if (introFrame && !introFrames) {
+            presentCopyUs = presentSyncUs = presentWaitUs = 0;
+            introPx0 = renderer.introPixels();
+        }
         const uint32_t frameStart = millis();
         const uint32_t drawStart = micros();
         // The start-up animation draws straight into the frame buffer that is
@@ -1641,6 +1644,9 @@ void loop() {
                 logf("  per frame: drawing %u ms, copying %u ms, cache flush %u ms, waiting for the panel %u ms\n",
                      unsigned(introDrawUs / 1000 / introFrames), unsigned(presentCopyUs / 1000 / introFrames),
                      unsigned(presentSyncUs / 1000 / introFrames), unsigned(presentWaitUs / 1000 / introFrames));
+                const uint32_t px = renderer.introPixels() - introPx0;
+                logf("  %u pixels drawn per frame, %.2f us each\n", unsigned(px / introFrames),
+                     px ? float(introDrawUs) / px : 0.0f);
                 introFrames = introMs = introMax = introDrawUs = 0;
             }
         }

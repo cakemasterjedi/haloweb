@@ -40,6 +40,8 @@ public:
     // drewIntoTarget().
     Rect render(uint32_t ms, uint16_t *introTarget = nullptr);
     bool drewIntoTarget() const { return drewIntoTarget_; }
+    // Pixels the start-up animation has drawn so far (for the log).
+    uint32_t introPixels() const { return introPixels_; }
     const uint16_t *frame() const { return frame_; }
 
     // Speeds up the moving modes (spin, stripes) by this factor, e.g. when the
@@ -132,6 +134,7 @@ private:
     IntroRegions introRegionsPrev_;
     bool drewIntoTarget_ = false;
     IntroParams introPrev_;
+    uint32_t introPixels_ = 0;
     float phase_ = 0;  // radians (spin) or pixels (stripes)
     float boost_ = 1;
     uint16_t divider_ = 0;  // lines between the quarters

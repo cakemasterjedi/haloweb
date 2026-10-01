@@ -7,6 +7,15 @@
 #include "label_font.h"
 #include "stroke_font.h"
 
+// On the board the start-up animation's drawing runs from internal RAM, so
+// it doesn't wait on the flash cache.
+#ifdef ESP_PLATFORM
+#include <esp_attr.h>
+#define INTRO_HOT IRAM_ATTR
+#else
+#define INTRO_HOT
+#endif
+
 namespace {
 
 const float PI_F = 3.14159265f;
@@ -436,7 +445,7 @@ void Renderer::drawDisc(float phi) {
 // Start-up animation
 
 // One pixel of the start-up animation for the parameters in p.
-inline uint16_t Renderer::introPixel(int x, int y, const IntroParams &p) const {
+INTRO_HOT uint16_t Renderer::introPixel(int x, int y, const IntroParams &p) const {
     const float fx = x + 0.5f - CX, fy = y + 0.5f - CY;
     const float r2 = fx * fx + fy * fy;
     if (r2 >= 240.0f * 240.0f) return 0;
@@ -448,8 +457,8 @@ inline uint16_t Renderer::introPixel(int x, int y, const IntroParams &p) const {
         if (p.ringP >= 1) {
             c = base;
         } else {
-            float af = angle_[y * W + x] / 65535.0f - p.offFrac;
-            af -= floorf(af);
+            float af = angle_[y * W + x] * (1 / 65535.0f) - p.offFrac;
+            af = af < 0 ? af + 1 : (af >= 1 ? af - 1 : af);
             const float vis = clamp01((p.ringP - af) * 60 + 0.5f);
             c = scale565(base, int(vis * 256));
             const float d = (af - p.ringP) * 70;
@@ -526,18 +535,19 @@ static Renderer::IntroRegions merge(const Renderer::IntroRegions &a, const Rende
 // target (the frame buffer about to be shown, last drawn two frames ago) the
 // changes of this and the previous frame are drawn straight into it, which
 // saves copying the frame. Returns the area that changed.
-Rect Renderer::drawIntro(float t, bool intoRoundel, uint16_t *target) {
+INTRO_HOT Rect Renderer::drawIntro(float t, bool intoRoundel, uint16_t *target) {
     if (layer != LAYER_ROUNDEL) buildRoundelLayer();
     uint16_t *out = target ? target : frame_;
 
     IntroParams p;
     const float offset = s_.angle * PI_F / 180.0f;
     p.offFrac = offset / (2 * PI_F);
+    p.offFrac -= floorf(p.offFrac);
     p.ringP = t < 1.1f ? easeInOutCubic(t / 1.1f) : 1.0f;    // ring sweep
     const float discT = clamp01((t - 0.75f) / 1.35f);          // quarters
     p.discS = discT > 0 ? easeOutBack(discT) : 0;              // disc size
     p.invS = p.discS > 0 ? 1 / p.discS : 0;
-    const float phi = offset - (1 - easeOutCubic(discT)) * 2.5f * 2 * PI_F;
+    const float phi = offset - (1 - easeOutCubic(discT)) * 1.5f * 2 * PI_F;
     p.cs = cosf(phi);
     p.sn = sinf(phi);
     const float glintT = (t - 2.1f) / 0.75f;                   // light sweep
@@ -559,6 +569,7 @@ Rect Renderer::drawIntro(float t, bool intoRoundel, uint16_t *target) {
             for (int x = 0; x < W; x++) row[x] = introPixel(x, y, p);
         }
         introRegionsPrev_ = {};
+        introPixels_ += W * H;
         return {0, 0, W, H};
     }
 
@@ -619,15 +630,33 @@ Rect Renderer::drawIntro(float t, bool intoRoundel, uint16_t *target) {
             const float fy = y + 0.5f - CY;
             uint16_t *row = out + y * W;
             const uint16_t *ang = angle_ + y * W;
+            const uint16_t *lay = layer_ + y * W;
             for (int x = box.x; x < box.x + box.w; x++) {
                 const float fx = x + 0.5f - CX;
                 const float r2 = fx * fx + fy * fy;
                 if (r2 < p.rDisc2 || r2 >= R_OUT2) continue;
                 float af = ang[x] * (1 / 65535.0f) - p.offFrac;
-                af -= floorf(af);
+                af = af < 0 ? af + 1 : (af >= 1 ? af - 1 : af);
                 if (af < lo || af > hi) continue;
-                row[x] = introPixel(x, y, p);
+                if (p.glint) {
+                    row[x] = introPixel(x, y, p);
+                    continue;
+                }
+                // introPixel() for a ring pixel, reusing r2 and af.
+                uint16_t c = lay[x];
+                if (r2 < p.rIn2 && p.discS <= 0) c = 0;
+                if (p.ringP < 1) {
+                    const float vis = clamp01((p.ringP - af) * 60 + 0.5f);
+                    c = scale565(c, int(vis * 256));
+                    const float d = (af - p.ringP) * 70;
+                    if (d > -3 && d < 3 && r2 > p.rIn2) {
+                        const float e = expf(-d * d);
+                        c = lighten565(c, int(e * 220 * vis + e * 60));
+                    }
+                }
+                row[x] = c;
             }
+            introPixels_ += box.w;
         }
         changed = unite(changed, box);
     }
@@ -644,7 +673,35 @@ Rect Renderer::drawIntro(float t, bool intoRoundel, uint16_t *target) {
             x0 = x0 < 0 ? 0 : x0;
             x1 = x1 > W ? W : x1;
             uint16_t *row = out + y * W;
-            for (int x = x0; x < x1; x++) row[x] = introPixel(x, y, p);
+            // introPixel() for the inside of the disc, with what doesn't
+            // change along the row worked out once.
+            const float fy2 = fy * fy, sy = fy * p.invS, sy2 = sy * sy;
+            const float sySn = sy * p.sn, syCs = sy * p.cs;
+            int iy = int(sy + CY) - p.dy0;
+            iy = iy < 0 ? 0 : (iy >= DISC ? DISC - 1 : iy);
+            const uint16_t *ra = discA_ + iy * DISC - p.dx0, *rb = discB_ + iy * DISC - p.dx0;
+            const bool simple = !p.glint;
+            for (int x = x0; x < x1; x++) {
+                const float fx = x + 0.5f - CX;
+                if (!simple || fx * fx + fy2 >= p.rDisc2) {
+                    row[x] = introPixel(x, y, p);
+                    continue;
+                }
+                uint16_t c = 0;
+                if (p.discS > 0) {
+                    const float sx = fx * p.invS;
+                    if (sx * sx + sy2 < p.rDisc2) {  // then the index is within the table
+                        const int ix = int(sx + CX);
+                        const float u = sx * p.cs + sySn;
+                        const float v = -sx * p.sn + syCs;
+                        const float d = fminf(fabsf(u), fabsf(v)) * p.discS;
+                        c = (u * v) > 0 ? ra[ix] : rb[ix];
+                        if (d < DIVIDER + 0.5f) c = blend565(c, divider_, int(clamp01(DIVIDER + 0.5f - d) * 256));
+                    }
+                }
+                row[x] = c;
+            }
+            introPixels_ += x1 - x0;
         }
         const int ri = int(ceilf(rr)) + 1;
         changed = unite(changed, {int16_t(CX - ri), int16_t(CY - ri), int16_t(2 * ri), int16_t(2 * ri)});
@@ -665,6 +722,7 @@ Rect Renderer::drawIntro(float t, bool intoRoundel, uint16_t *target) {
             x1 = x1 > W ? W : x1;
             uint16_t *row = out + y * W;
             for (int x = x0; x < x1; x++) row[x] = introPixel(x, y, p);
+            introPixels_ += x1 > x0 ? x1 - x0 : 0;
         }
         changed = {0, 0, W, H};
     }
