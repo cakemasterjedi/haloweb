@@ -1368,11 +1368,26 @@ static void setupWifi() {
     }, ARDUINO_EVENT_WIFI_STA_GOT_IP);
     WiFi.mode(settings.staSsid[0] ? WIFI_AP_STA : WIFI_AP);
     WiFi.softAP(settings.apSsid, strlen(settings.apPass) >= 8 ? settings.apPass : nullptr);
+    // While the emblem looks for the hotspot it hops between channels, which
+    // stalls its own network. So no automatic retrying: staTick() retries
+    // now and then, and only while no phone is on the emblem's network.
+    WiFi.setAutoReconnect(false);
     if (settings.staSsid[0]) WiFi.begin(settings.staSsid, settings.staPass);
     dns.start(53, "*", WiFi.softAPIP());
     if (MDNS.begin("emblem")) MDNS.addService("http", "tcp", 80);
     logf("Wi-Fi \"%s\" up, open http://%s or http://emblem.local\n", settings.apSsid,
                   WiFi.softAPIP().toString().c_str());
+}
+
+// Rejoins the hotspot once a minute when it's out of reach, but never while a
+// phone is connected to the emblem's own network.
+static void staTick(uint32_t now) {
+    static uint32_t retryAt = 60000;
+    if (!settings.staSsid[0] || WiFi.status() == WL_CONNECTED || int32_t(now - retryAt) < 0) return;
+    retryAt = now + 60000;
+    if (WiFi.softAPgetStationNum() > 0) return;
+    logf("Looking for hotspot \"%s\"\n", settings.staSsid);
+    WiFi.begin(settings.staSsid, settings.staPass);
 }
 
 // ---------------------------------------------------------------------------
@@ -1460,10 +1475,16 @@ void setup() {
     if (!LittleFS.begin(true)) logf("LittleFS mount failed\n");
 
     // Wi-Fi first: even if the display fails, the phone page stays reachable.
+    uint32_t t0 = millis();
     setupWifi();
     setupWeb();
+    logf("[%u ms] Wi-Fi + web server up (%u ms)\n", unsigned(millis()), unsigned(millis() - t0));
+    t0 = millis();
     setupDisplay();
+    logf("[%u ms] Display set up (%u ms)\n", unsigned(millis()), unsigned(millis() - t0));
+    t0 = millis();
     setupSD();
+    logf("[%u ms] Storage set up (%u ms)\n", unsigned(millis()), unsigned(millis() - t0));
     logf(rtcBegin() ? "Clock: set\n" : rtcPresent() ? "Clock: not set yet\n" : "Clock chip not found\n");
     if (safeMode) {
         logf("Safe mode after %u crashes: motion sensor and start-up animation off\n", unsigned(crashCount));
@@ -1480,14 +1501,26 @@ void setup() {
     refreshDisplay(false);
     // Start-up: the built-in animation or a picture slot's clip.
     if (settings.startupAnim && !safeMode) playClip(settings.bootSlot);
-    logf("Start-up done\n");
+    logf("[%u ms] Start-up done. Free heap %u, PSRAM %u\n", unsigned(millis()), unsigned(ESP.getFreeHeap()),
+         unsigned(ESP.getFreePsram()));
     lastActivity = showStart = cycleAt = millis();
     cycleAt += settings.cycleSec * 1000u;
 }
 
+// Logs any part of the loop that takes long (it stalls the page and the display).
+static void slowCheck(uint32_t &t, const char *what) {
+    const uint32_t now = millis();
+    if (now - t > 250) logf("Slow: %s took %u ms\n", what, unsigned(now - t));
+    t = now;
+}
+
 void loop() {
+    uint32_t t = millis();
     dns.processNextRequest();
+    slowCheck(t, "DNS");
     server.handleClient();
+    if (millis() - t > 250) logf("Slow: web request %s took %u ms\n", server.uri().c_str(), unsigned(millis() - t));
+    t = millis();
 
     static uint32_t lastFrame = 0;
     uint32_t now = millis();
@@ -1531,10 +1564,13 @@ void loop() {
         rtcSaveSystemTime();
         logf("Clock set from the internet\n");
     }
+    slowCheck(t, "motion");
     if (displayOk) {
         clipTick(now);
         cycleTick(now);
+        slowCheck(t, "auto-cycle / clip");
         if (!resting) stepAnimation(now);
+        slowCheck(t, "animation frame");
     }
     static uint32_t lastResync = 0;
     if (displayOk && now - lastResync >= 1000) {
@@ -1550,6 +1586,7 @@ void loop() {
             forceFull = false;
         }
         if (!r.empty()) present(r);
+        slowCheck(t, "drawing");
     }
 
     if (crashCount && now > 60000) {
@@ -1560,6 +1597,8 @@ void loop() {
     if (now - lastPowerTick >= 1000) {
         lastPowerTick = now;
         powerTick(now);
+        staTick(now);
+        slowCheck(t, "once-a-second checks");
     }
     if (shutdownAt && int32_t(now - shutdownAt) >= 0) shutdownNow(SLEEP_OFF);
     if (saveAt && int32_t(now - saveAt) >= 0) saveSettings();
