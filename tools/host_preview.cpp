@@ -46,8 +46,12 @@ int main(int argc, char **argv) {
     r.apply(s);
     const int frames[] = {300, 700, 1100, 1500, 2000, 2400};
     for (int f : frames) {
-        r.startIntro(10000);
-        r.render(10000 + f);
+        // The animation keeps its own clock, so step through it frame by frame.
+        r.render(9000);
+        r.startIntro(9000);
+        uint32_t ms = 10000;
+        for (int t = 0; t < f; t += 50) r.render(ms += 50);
+        r.render(ms += 1);
         save(r, dir + "/intro_" + std::to_string(f) + ".ppm");
     }
 

@@ -27,7 +27,7 @@ public:
     // Start-up animation: the ring sweeps in, the quarters spin into place,
     // a glint crosses the badge, then the selected mode takes over.
     void startIntro(uint32_t ms);
-    bool introRunning() const { return introStart_ != 0; }
+    bool introRunning() const { return introT_ >= 0; }
 
     // Picture for MODE_IMAGE: fill imageBuffer() (W*H RGB565) then call imageChanged().
     uint16_t *imageBuffer() { return image_; }
@@ -105,7 +105,7 @@ private:
     bool imageValid_ = false;
     bool dirty_ = true;
     uint32_t lastMs_ = 0;
-    uint32_t introStart_ = 0;
+    float introT_ = -1;  // seconds into the start-up animation, -1 = not playing
     float phase_ = 0;  // radians (spin) or pixels (stripes)
     float boost_ = 1;
     uint16_t divider_ = 0;  // lines between the quarters
