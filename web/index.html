@@ -201,6 +201,7 @@
 </div>
 
 <main>
+  <div class="warn hidden" id="safeWarn">The emblem restarted after crashing twice, so the motion sensor and start-up animation are paused until it has run for a minute. Please send the serial log.</div>
   <div class="warn hidden" id="displayWarn">The display didn't start. Open <b>Settings</b> and try another panel type.</div>
 
   <div class="hero">
@@ -433,7 +434,8 @@
 
     <div class="card">
       <h2>Motion sensor</h2>
-      <p class="hint" style="margin-top:0" id="imuInfo"></p>
+      <div class="row"><label for="motionOn">Use the motion sensor<span class="sub" id="imuInfo"></span></label>
+        <label class="switch"><input type="checkbox" id="motionOn"><span></span></label></div>
       <div id="imuOpts">
         <div class="stack"><div class="top2"><span>Motion effects</span><output data-for="motionReact"></output></div>
           <input type="range" id="motionReact" min="0" max="100" step="5"></div>
@@ -481,6 +483,7 @@
       <h2>Firmware</h2>
       <p class="hint" style="margin-top:0">Optional: install a new <code>firmware.bin</code> over Wi-Fi (from <code>.pio/build/esp32-s3-display/</code>). Settings and pictures are kept.</p>
       <input type="file" id="fw" accept=".bin" style="margin-top:10px">
+      <p class="hint" id="resetInfo"></p>
       <div class="split">
         <button id="flash">Update firmware</button>
         <button id="reboot">Restart</button>
@@ -619,7 +622,7 @@ async function poll() {
   }
   setTimeout(poll, tab === 'settings' && st && st.imu ? 1500 : tab === 'power' || (st && st.cycling) ? 3000 : 10000);
 }
-const LIVE_KEYS = ['volts', 'offIn', 'lowFor', 'slots', 'staIp', 'clock', 'night', 'showMode', 'showSlot', 'cycling', 'jolt', 'moving', 'boost', 'levelSet', 'resting', 'activeRule'];
+const LIVE_KEYS = ['volts', 'offIn', 'lowFor', 'slots', 'staIp', 'clock', 'night', 'showMode', 'showSlot', 'cycling', 'jolt', 'moving', 'boost', 'levelSet', 'resting', 'activeRule', 'imu', 'safeMode', 'uptime', 'resetReason'];
 // Changed on the emblem itself (double-tap); taken over unless the user is changing them.
 const SELECTION_KEYS = ['mode', 'imageSlot'];
 let polledAt = Date.now();
@@ -757,8 +760,15 @@ function updateLive() {
   $('clockInfo').textContent = !st.rtc ? 'No clock chip found on the board'
     : st.clock ? `Emblem time ${st.clock}${st.autoDim ? (st.night ? ' · night now' : ' · day now') : ''}`
     : 'Clock not set yet (it is set when this page opens)';
-  $('imuInfo').textContent = st.imu ? (st.levelSet ? 'Found and set up.' : 'Found. Do the level set-up below once.')
-    : 'No motion sensor found on this board.';
+  $('imuInfo').textContent = st.motionOff ? 'Off' : st.safeMode ? 'Paused (safe mode)'
+    : st.imu ? (st.levelSet ? 'Found and set up' : 'Found. Do the level set-up below once')
+    : 'Not found on this board';
+  $('motionOn').checked = !st.motionOff;
+  $('safeWarn').classList.toggle('hidden', !st.safeMode);
+  if (st.resetReason) {
+    const up = st.uptime || 0;
+    $('resetInfo').textContent = `Last start: ${st.resetReason}, running for ${up >= 3600 ? Math.floor(up / 3600) + ' h ' : ''}${Math.floor(up % 3600 / 60)} min.`;
+  }
   $('imuOpts').classList.toggle('hidden', !st.imu);
   if (st.imu && st.jolt != null) {
     $('joltInfo').textContent = `Last jolt ${(+st.jolt).toFixed(2)} g · ${st.moving ? 'driving' : 'still'}` +
@@ -998,6 +1008,7 @@ function setupSystem() {
   $('fades').onchange = (e) => send({fades: e.target.checked ? 1 : 0});
   $('doubleTap').onchange = (e) => send({doubleTap: +e.target.value});
   $('welcomeOn').onchange = (e) => send({welcomeOn: e.target.checked ? 1 : 0});
+  $('motionOn').onchange = (e) => send({motionOff: e.target.checked ? 0 : 1});
   $('welcomeSlot').onchange = (e) => send({welcomeSlot: +e.target.value});
   $('welcomeSens').onchange = (e) => send({welcomeSens: +e.target.value});
   $('restMin').onchange = (e) => send({restMin: +e.target.value});

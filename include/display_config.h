@@ -5,6 +5,8 @@
 // https://www.waveshare.com/wiki/ESP32-S3-LCD-2.8C
 #include <Arduino.h>
 #include <Wire.h>
+
+#include "../src/i2c_bus.h"
 #include <driver/spi_master.h>
 #include <esp_lcd_panel_ops.h>
 #include <esp_lcd_panel_rgb.h>
@@ -146,6 +148,7 @@ static const uint8_t PANEL_TYPE_COUNT = sizeof(PANEL_TYPES) / sizeof(PANEL_TYPES
 static uint8_t expanderOut = 0;
 
 inline bool expanderWrite(uint8_t reg, uint8_t val) {
+    I2CLock lock;
     Wire.beginTransmission(PCA9554_ADDR);
     Wire.write(reg);
     Wire.write(val);

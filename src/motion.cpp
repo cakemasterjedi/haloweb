@@ -5,6 +5,8 @@
 #include <Wire.h>
 #include <math.h>
 
+#include "i2c_bus.h"
+
 namespace {
 
 // QMI8658 registers.
@@ -17,7 +19,7 @@ const uint8_t REG_AX_L = 0x35;      // AX_L, AX_H, AY_L, AY_H, AZ_L, AZ_H
 const uint8_t REG_RESET = 0x60;
 
 const float LSB_PER_G = 4096.0f;  // +-8 g range
-const uint32_t PERIOD_MS = 5;     // 200 Hz
+const uint32_t PERIOD_MS = 10;    // 100 Hz
 const float DT = PERIOD_MS / 1000.0f;
 
 uint8_t addr = 0;
@@ -33,8 +35,10 @@ volatile uint32_t quietBeforeJolt = 0;
 uint32_t burstQuiet = 0, burstStart = 0, lastJolt = 0;
 const float MOVEMENT_G = 0.06f;      // smaller jolts don't count as movement
 volatile uint8_t tapSensitivity = 0;
+volatile bool enabled = true;
 
 bool writeReg(uint8_t reg, uint8_t val) {
+    I2CLock lock;
     Wire.beginTransmission(addr);
     Wire.write(reg);
     Wire.write(val);
@@ -42,6 +46,7 @@ bool writeReg(uint8_t reg, uint8_t val) {
 }
 
 bool readRegs(uint8_t reg, uint8_t *buf, size_t n) {
+    I2CLock lock;
     Wire.beginTransmission(addr);
     Wire.write(reg);
     if (Wire.endTransmission(false) != 0) return false;
@@ -59,8 +64,19 @@ void task(void *) {
     TickType_t wake = xTaskGetTickCount();
     for (;;) {
         vTaskDelayUntil(&wake, pdMS_TO_TICKS(PERIOD_MS));
+        if (!enabled) {
+            vTaskDelay(pdMS_TO_TICKS(200));
+            wake = xTaskGetTickCount();
+            first = true;
+            continue;
+        }
         uint8_t b[6];
-        if (!readRegs(REG_AX_L, b, 6)) continue;
+        if (!readRegs(REG_AX_L, b, 6)) {
+            // Don't hog the bus if the sensor stops answering.
+            vTaskDelay(pdMS_TO_TICKS(250));
+            wake = xTaskGetTickCount();
+            continue;
+        }
         const float ax = int16_t(b[0] | (b[1] << 8)) / LSB_PER_G;
         const float ay = int16_t(b[2] | (b[3] << 8)) / LSB_PER_G;
         const float az = int16_t(b[4] | (b[5] << 8)) / LSB_PER_G;
@@ -139,6 +155,8 @@ void task(void *) {
 }  // namespace
 
 bool motionBegin() {
+    static bool started = false;
+    if (started) return true;
     for (uint8_t a : {uint8_t(0x6B), uint8_t(0x6A)}) {
         addr = a;
         uint8_t id = 0;
@@ -153,11 +171,13 @@ bool motionBegin() {
     writeReg(REG_CTRL5, 0x07);  // accelerometer low-pass on (narrowest)
     writeReg(REG_CTRL7, 0x01);  // accelerometer only
     delay(20);
-    xTaskCreatePinnedToCore(task, "motion", 3072, nullptr, 2, nullptr, 0);
+    started = true;
+    xTaskCreatePinnedToCore(task, "motion", 6144, nullptr, 1, nullptr, 0);
     return true;
 }
 
-bool motionPresent() { return addr != 0; }
+bool motionPresent() { return addr != 0 && enabled; }
+void motionSetEnabled(bool on) { enabled = on; }
 float motionTiltDeg() { return tiltDeg; }
 float motionBoost() { return boost; }
 bool motionMoving() { return vibration > 0.06f; }
