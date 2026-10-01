@@ -28,6 +28,10 @@
 #include "settings.h"
 #include "web_ui.h"  // generated from web/index.html by tools/embed_web.py
 
+#ifndef FW_BUILD
+#define FW_BUILD "unknown"
+#endif
+
 static const size_t IMAGE_BYTES = size_t(Renderer::W) * Renderer::H * 2;
 static const uint32_t FRAME_MS = 20;
 static const uint32_t SAVE_DELAY_MS = 2000;
@@ -919,6 +923,7 @@ static void sendState() {
     j += ",\"resetReason\":\"" + String(resetReason) + "\"";
     j += ",\"safeMode\":" + String(safeMode ? "true" : "false");
     j += ",\"uptime\":" + String(millis() / 1000);
+    j += ",\"build\":\"" FW_BUILD "\"";
     j += ",\"motionReact\":" + String(settings.motionReact);
     j += ",\"doubleTap\":" + String(settings.doubleTap);
     j += ",\"levelSet\":" + String(settings.levelSign ? "true" : "false");
@@ -1472,7 +1477,7 @@ void setup() {
                 : (why == ESP_RST_INT_WDT || why == ESP_RST_TASK_WDT || why == ESP_RST_WDT) ? "froze (watchdog)" : "other";
     sleepReason = SLEEP_NONE;
     delay(300);
-    logf("\n=== Emblem starting (%s%s) ===\n", resetReason, safeMode ? ", SAFE MODE" : "");
+    logf("\n=== Emblem starting (%s%s) ===\nFirmware build %s\n", resetReason, safeMode ? ", SAFE MODE" : "", FW_BUILD);
     if (!LittleFS.begin(true)) logf("LittleFS mount failed\n");
 
     // Wi-Fi first: even if the display fails, the phone page stays reachable.

@@ -767,7 +767,7 @@ function updateLive() {
   $('safeWarn').classList.toggle('hidden', !st.safeMode);
   if (st.resetReason) {
     const up = st.uptime || 0;
-    $('resetInfo').textContent = `Last start: ${st.resetReason}, running for ${up >= 3600 ? Math.floor(up / 3600) + ' h ' : ''}${Math.floor(up % 3600 / 60)} min.`;
+    $('resetInfo').textContent = `Build ${st.build || '?'} · last start: ${st.resetReason}, running for ${up >= 3600 ? Math.floor(up / 3600) + ' h ' : ''}${Math.floor(up % 3600 / 60)} min.`;
   }
   $('imuOpts').classList.toggle('hidden', !st.imu);
   if (st.imu && st.jolt != null) {
