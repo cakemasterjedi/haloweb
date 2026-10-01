@@ -81,7 +81,7 @@ private:
 
     void buildTables();
     void layoutLabel();
-    float labelCoverage(float fx, float fy, float r, float offset, float &height) const;
+    float labelCoverage(int idx, float r, float offset, float &height) const;
     void buildRoundelLayer();
     void buildCarbonLayer();
     void drawDisc(float phi);

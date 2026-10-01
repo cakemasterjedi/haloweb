@@ -259,6 +259,12 @@ static inline uint16_t mix565(uint16_t a, uint16_t b, int t) {
 static void present(Rect r) {
     if (framesShown++ == 0) logf("First emblem frame sent to the display\n");
     const Rect full = {0, 0, Renderer::W, Renderer::H};
+    // Never copy outside the frame buffer, whatever area we're given.
+    {
+        const int x0 = max<int>(r.x, 0), y0 = max<int>(r.y, 0);
+        const int x1 = min<int>(r.x + r.w, Renderer::W), y1 = min<int>(r.y + r.h, Renderer::H);
+        r = x1 > x0 && y1 > y0 ? Rect{int16_t(x0), int16_t(y0), int16_t(x1 - x0), int16_t(y1 - y0)} : Rect{0, 0, 0, 0};
+    }
     const bool fading = fadeStart != 0;
     const int t = fading ? int(min<uint32_t>(256, (millis() - fadeStart) * 256 / FADE_MS)) : 256;
     const Rect area = fading ? full : unite(r, lastDirty);
@@ -1385,12 +1391,12 @@ static void setupWifi() {
                   WiFi.softAPIP().toString().c_str());
 }
 
-// Rejoins the hotspot once a minute when it's out of reach, but never while a
+// Rejoins the hotspot every 20 s when it's out of reach, but never while a
 // phone is connected to the emblem's own network.
 static void staTick(uint32_t now) {
-    static uint32_t retryAt = 60000;
+    static uint32_t retryAt = 20000;
     if (!settings.staSsid[0] || WiFi.status() == WL_CONNECTED || int32_t(now - retryAt) < 0) return;
-    retryAt = now + 60000;
+    retryAt = now + 20000;
     if (WiFi.softAPgetStationNum() > 0) return;
     logf("Looking for hotspot \"%s\"\n", settings.staSsid);
     WiFi.begin(settings.staSsid, settings.staPass);

@@ -280,10 +280,11 @@ void Renderer::layoutLabel() {
 
 // Coverage (0..1) of the ring lettering at a pixel; height is how far up the
 // letter it is (0 at the baseline, 1 at the cap height).
-float Renderer::labelCoverage(float fx, float fy, float r, float offset, float &height) const {
+float Renderer::labelCoverage(int idx, float r, float offset, float &height) const {
     const LabelLayout &l = label_;
     if (!l.count) return 0;
-    float a = atan2f(fx, -fy) - offset;  // clockwise from the top
+    // Clockwise from the top, from the angle table (atan2 is slow on the ESP32).
+    float a = angle_[idx] * (2 * PI_F / 65535.0f) - offset;
     while (a > PI_F) a -= 2 * PI_F;
     while (a < -PI_F) a += 2 * PI_F;
     const float first = -(l.count - 1) * l.step / 2;
@@ -293,6 +294,11 @@ float Renderer::labelCoverage(float fx, float fy, float r, float offset, float &
     const LabelGlyph *g = l.glyph[i];
     if (!g->w) return 0;
     const float da = a - (first + i * l.step);
+    // Most of the band is the gap between letters: rule it out before the
+    // (slow on the ESP32) trig. |u| = r|sin da| / scale >= r|da|(1 - da^2/6) / scale.
+    const float reach = fmaxf(fabsf(g->left - g->advance * 0.5f), fabsf(g->left + g->w - g->advance * 0.5f)) + 2;
+    const float ada = fabsf(da);
+    if (ada > 1.5f || r * ada * (1 - ada * ada / 6) / l.scale > reach) return 0;
     const float u = r * sinf(da) / l.scale;                // across the letter
     const float v = (r * cosf(da) - l.baseline) / l.scale;  // up from the baseline
     height = v / LABEL_FONT_CAP;
@@ -326,7 +332,12 @@ void Renderer::buildRoundelLayer() {
         float fy = y + 0.5f - CY;
         for (int x = 0; x < W; x++) {
             float fx = x + 0.5f - CX;
-            float r = sqrtf(fx * fx + fy * fy);
+            const float r2 = fx * fx + fy * fy;
+            if (r2 > (R_EDGE + 1) * (R_EDGE + 1)) {
+                layer_[y * W + x] = 0;
+                continue;
+            }
+            float r = sqrtf(r2);
             RGBf c = BLACK;
             if (r < R_EDGE + 1) {
                 c = mix(c, chrome(rim, fx, fy, r, R_RING - 1, R_EDGE), inside(R_EDGE, r));
@@ -344,7 +355,7 @@ void Renderer::buildRoundelLayer() {
 
                 if (r > labelIn && r < labelOut) {
                     float h = 0;
-                    float cov = labelCoverage(fx, fy, r, offset, h);
+                    float cov = labelCoverage(y * W + x, r, offset, h);
                     if (cov > 0) {
                         // White letters, a touch greyer towards the centre.
                         RGBf l = mix(scale(label, 0.84f), label, clamp01(0.25f + h));
@@ -367,6 +378,13 @@ void Renderer::buildRoundelLayer() {
     // right, with a soft gloss and a slightly darker edge. One image per
     // quarter colour.
     const int x0 = int(CX) - DISC / 2, y0 = int(CY) - DISC / 2;
+    // The gloss is a Gaussian, exp(-(hx^2 + hy^2) / 2s^2) = gx(x) * gy(y).
+    static float glossX[DISC], glossY[DISC];
+    for (int i = 0; i < DISC; i++) {
+        const float hx = x0 + i + 0.5f - CX + 55, hy = y0 + i + 0.5f - CY + 60;
+        glossX[i] = expf(-(hx * hx) / (2 * 70.0f * 70.0f));
+        glossY[i] = expf(-(hy * hy) / (2 * 70.0f * 70.0f));
+    }
     for (int y = 0; y < DISC; y++) {
         float fy = y0 + y + 0.5f - CY;
         for (int x = 0; x < DISC; x++) {
@@ -374,8 +392,7 @@ void Renderer::buildRoundelLayer() {
             float rr = sqrtf(fx * fx + fy * fy) / R_DISC;
             float t = clamp01(((fx + fy) * 0.7071f / R_DISC + 1) / 2);  // 0 top left .. 1 bottom right
             float shade = (1.0f - 0.2f * t) * (1.0f - 0.12f * smoothstep(0.85f, 1.0f, rr));
-            float hx = fx + 55, hy = fy + 60;
-            float gloss = 0.14f * (1 - t) + expf(-(hx * hx + hy * hy) / (2 * 70.0f * 70.0f)) * 0.12f;
+            float gloss = 0.14f * (1 - t) + glossX[x] * glossY[y] * 0.12f;
             discA_[y * DISC + x] = to565d(mix(scale(qa, shade), WHITE, gloss), x, y);
             discB_[y * DISC + x] = to565d(mix(scale(qb, shade), WHITE, gloss), x, y);
         }
@@ -477,7 +494,18 @@ void Renderer::introArea(const IntroParams &p, int x0, int y0, int x1, int y1) {
     }
 }
 
+// Limits a rectangle to the screen.
+static Rect clip(Rect r) {
+    int x0 = r.x < 0 ? 0 : r.x, y0 = r.y < 0 ? 0 : r.y;
+    int x1 = r.x + r.w > Renderer::W ? Renderer::W : r.x + r.w;
+    int y1 = r.y + r.h > Renderer::H ? Renderer::H : r.y + r.h;
+    if (x1 <= x0 || y1 <= y0) return {0, 0, 0, 0};
+    return {int16_t(x0), int16_t(y0), int16_t(x1 - x0), int16_t(y1 - y0)};
+}
+
 static Rect unite(Rect a, Rect b) {
+    a = clip(a);
+    b = clip(b);
     if (a.empty()) return b;
     if (b.empty()) return a;
     const int x0 = a.x < b.x ? a.x : b.x, y0 = a.y < b.y ? a.y : b.y;
@@ -571,7 +599,7 @@ Rect Renderer::drawIntro(float t, bool intoRoundel) {
         }
         changed = {0, 0, W, H};
     }
-    return changed;
+    return clip(changed);
 }
 
 // ---------------------------------------------------------------------------
