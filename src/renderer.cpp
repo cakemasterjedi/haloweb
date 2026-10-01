@@ -540,15 +540,22 @@ Rect Renderer::drawIntro(float t, bool intoRoundel) {
     p.dx0 = int(CX) - DISC / 2;
     p.dy0 = int(CY) - DISC / 2;
 
-    const IntroParams q = introPrev_;
+    IntroParams q = introPrev_;
     introPrev_ = p;
-    if (introFirst_ || p.fade256 < 256 || q.fade256 < 256) {
+    Rect changed = {0, 0, 0, 0};
+    if (introFirst_) {
+        // At the start everything is black apart from the beginning of the
+        // ring sweep: clear the frame, then draw just that slice.
         introFirst_ = false;
+        memset(frame_, 0, size_t(W) * H * 2);
+        q = p;
+        q.ringP = 0;
+        changed = {0, 0, W, H};
+    } else if (p.fade256 < 256 || q.fade256 < 256) {
         introArea(p, 0, 0, W, H);
         return {0, 0, W, H};
     }
 
-    Rect changed = {0, 0, 0, 0};
     // Ring sweep: the slice between last frame's edge and this one's (with
     // room for the soft edge and the spark).
     if (p.ringP < 1 || q.ringP < 1) {
@@ -855,12 +862,12 @@ Rect Renderer::render(uint32_t ms) {
     lastMs_ = ms;
 
     if (introT_ >= 0) {
-        // The animation's own clock: it advances by at most 0.1 s per frame,
+        // The animation's own clock: it advances by at most 0.15 s per frame,
         // so a slow frame (start-up, storage, Wi-Fi) pauses it rather than
         // skipping ahead to the end.
         const bool intoRoundel = s_.mode == MODE_ROUNDEL || s_.mode == MODE_SPIN;
         const float t = introT_;
-        introT_ += dt < 0.1f ? dt : 0.1f;
+        introT_ += dt < 0.15f ? dt : 0.15f;
         if (t < (intoRoundel ? 2.9f : 3.4f)) return drawIntro(t, intoRoundel);
         introT_ = -1;
         phase_ = 0;
