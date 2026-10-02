@@ -708,7 +708,7 @@ static int cycleList(Item *out) {
     uint8_t slots[IMAGE_SLOTS];
     listSlots(slots);
     int n = 0;
-    for (uint8_t m : {MODE_ROUNDEL, MODE_SPIN, MODE_STRIPES, MODE_TEXT}) {
+    for (uint8_t m : {MODE_ROUNDEL, MODE_SPIN, MODE_STRIPES, MODE_TEXT, MODE_M50}) {
         if (settings.cycleItems & (1u << m)) out[n++] = {m, settings.imageSlot};
     }
     for (uint8_t i = 0; i < IMAGE_SLOTS; i++) {
@@ -722,7 +722,7 @@ static bool sameItem(Item a, Item b) {
 }
 
 static void updateCycleOn() {
-    Item list[IMAGE_SLOTS + 5];
+    Item list[IMAGE_SLOTS + MODE_COUNT];
     cycleOn = settings.cycleSec && cycleList(list) >= 2;
     if (!cycleOn) cycleOverride = false;
 }
@@ -763,14 +763,14 @@ static void refreshDisplay(bool fade, bool reload = false) {
 // Next design: the next one in the auto-cycle list, or, without auto-cycle,
 // the next mode / filled picture slot (which becomes the selection).
 static void nextItem() {
-    Item list[IMAGE_SLOTS + 5];
+    Item list[IMAGE_SLOTS + MODE_COUNT];
     int n = 0;
     if (cycleOn) {
         n = cycleList(list);
     } else {
         uint8_t slots[IMAGE_SLOTS];
         listSlots(slots);
-        for (uint8_t m : {MODE_ROUNDEL, MODE_SPIN, MODE_STRIPES, MODE_TEXT}) list[n++] = {m, settings.imageSlot};
+        for (uint8_t m : {MODE_ROUNDEL, MODE_SPIN, MODE_STRIPES, MODE_TEXT, MODE_M50}) list[n++] = {m, settings.imageSlot};
         for (uint8_t i = 0; i < IMAGE_SLOTS; i++) {
             if (slots[i]) list[n++] = {MODE_IMAGE, i};
         }

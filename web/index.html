@@ -115,7 +115,7 @@
   .seg button.on { background: var(--card2); color: var(--text); box-shadow: 0 1px 4px rgba(0,0,0,.4); }
 
   /* Mode tiles */
-  .modes { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
+  .modes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
   .tile { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 12px 2px 10px; border-radius: 16px;
     font-size: 12px; color: var(--muted); min-height: 0; }
   .tile svg { width: 30px; height: 30px; }
@@ -562,11 +562,12 @@ const ICONS = {
   spin: '<svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M26 16a10 10 0 1 1-3-7.1"/><path d="M26 6v5h-5"/><circle cx="16" cy="16" r="3" fill="currentColor" stroke="none"/></svg>',
   stripes: '<svg viewBox="0 0 32 32" fill="currentColor"><path d="M9 28L17 4h4L13 28z" opacity=".55"/><path d="M14 28L22 4h4l-8 24z" opacity=".8"/><path d="M19 28L27 4h3l-8 24z"/></svg>',
   picture: '<svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"><rect x="4" y="6" width="24" height="20" rx="4"/><circle cx="12" cy="13" r="2.5"/><path d="M28 21l-7-7-13 12"/></svg>',
+  m50: '<svg viewBox="0 0 32 32" fill="none" stroke="currentColor"><circle cx="16" cy="16" r="14" stroke-width="2"/><path d="M5.5 16a10.5 10.5 0 0 1 21 0" stroke-width="2.4"/><path d="M16 8.5a7.5 7.5 0 0 1 0 15" stroke-width="2"/><circle cx="16" cy="16" r="4.5" fill="currentColor" stroke="none"/></svg>',
   text: '<svg viewBox="0 0 32 32" fill="currentColor"><path d="M5 25l6.5-18h3L21 25h-3.2l-1.6-4.6H9.8L8.2 25zm5.7-7.4h4.6L13 10.9z"/><path d="M22 25V13h2.8v1.4c.7-1 1.7-1.6 3.2-1.6V16c-2 0-3.2.9-3.2 3v6z"/></svg>',
 };
 const MODES = [
   {name: 'Roundel', icon: 'roundel'}, {name: 'Spin', icon: 'spin'}, {name: 'Stripes', icon: 'stripes'},
-  {name: 'Picture', icon: 'picture'}, {name: 'Text', icon: 'text'},
+  {name: 'Picture', icon: 'picture'}, {name: 'Text', icon: 'text'}, {name: 'M 50', icon: 'm50'},
 ];
 const SPEED_LABEL = {1: 'Spin speed', 2: 'Scroll speed'};
 const COLOR_KEYS = ['quadA', 'quadB', 'ring', 'rim', 'label', 'stripe1', 'stripe2', 'stripe3', 'stripeBg', 'textFg', 'textBg'];
@@ -866,7 +867,7 @@ function designName(mode, slot) {
 
 // The designs a date can show: the modes plus filled picture slots.
 function designOptions() {
-  const opts = [[0, 0], [1, 0], [2, 0], [4, 0]];
+  const opts = [[0, 0], [1, 0], [2, 0], [4, 0], [5, 0]];
   (st.slots || []).forEach((k, i) => { if (k) opts.push([3, i]); });
   return opts;
 }
@@ -916,7 +917,7 @@ function setupRules() {
 // Auto-cycle choices: the modes plus every filled picture slot.
 function renderCyclePicks() {
   const el = $('cyclePicks');
-  const picks = [[0, 'Roundel'], [1, 'Spin'], [2, 'Stripes'], [4, 'Text']];
+  const picks = [[0, 'Roundel'], [1, 'Spin'], [2, 'Stripes'], [4, 'Text'], [5, 'M 50']];
   (st.slots || []).forEach((k, i) => { if (k) picks.push([8 + i, (k === 2 ? 'Animation ' : 'Picture ') + (i + 1), i]); });
   el.innerHTML = '';
   for (const [bit, name, slot] of picks) {
@@ -2451,6 +2452,46 @@ function drawTextMode(ctx, text, fg, bg) {
   ctx.restore();
 }
 
+// "50 Years of BMW M" badge (as the firmware draws it).
+function drawM50(ctx, off) {
+  const ring = (r0, r1, a0, a1, fill) => {
+    ctx.beginPath();
+    ctx.arc(0, 0, r1, a0, a1);
+    ctx.arc(0, 0, r0, a1, a0, true);
+    ctx.closePath();
+    ctx.fillStyle = fill;
+    ctx.fill();
+  };
+  const disc = (r, fill) => ring(0, r, 0, 2 * Math.PI, fill);
+  const P = Math.PI;
+  ctx.save();
+  ctx.translate(C, C);
+  disc(239.5, '#b8bcc2');
+  disc(231, '#f0f1f0');
+  ctx.rotate(off);
+  ring(202, 229, P, 2 * P, '#62a4e8');           // light blue over the top
+  ring(174.5, 200.5, -P / 2, P / 2, '#1c2e7a');  // dark blue down the right
+  ring(148, 175, 0, P, '#e02428');                // red under the bottom
+  disc(147, '#c4c8ce');
+  disc(144, '#0e0e10');
+  ctx.font = LABEL_FONT;
+  ctx.fillStyle = '#c4c8ce';
+  ctx.textAlign = 'center';
+  const sc = 40 / (100 * 0.716);
+  ['B', 'M', 'W'].forEach((ch, i) => {
+    const a = (i - 1) * 54 * P / 180;
+    ctx.save();
+    ctx.rotate(a);
+    ctx.translate(0, -97);
+    ctx.scale(sc, sc);
+    ctx.fillText(ch, 0, 0);
+    ctx.restore();
+  });
+  disc(90, '#c4c8ce');
+  for (let q = 0; q < 4; q++) ring(0, 86, q * P / 2 - P, (q + 1) * P / 2 - P, q % 2 === 0 ? '#2C8BD6' : '#ffffff');
+  ctx.restore();
+}
+
 let phase = 0, last = 0;
 function frame(ts) {
   const dt = last ? Math.min(0.2, (ts - last) / 1000) : 0;
@@ -2463,8 +2504,9 @@ function frame(ts) {
     if (mode === 0) drawRoundel(ctx, off);
     else if (mode === 1) { phase += dt * st.speed / 100 * 2 * Math.PI; drawRoundel(ctx, off + phase); }
     else if (mode === 2) { if (st.speed) phase += dt * st.speed * 1.5; drawStripes(ctx, st.speed ? phase : 0, !!st.speed); }
+    else if (mode === 5) drawM50(ctx, off);
     // Pictures and text are turned by the rotation too.
-    if (mode >= 3 && off) {
+    if ((mode === 3 || mode === 4) && off) {
       ctx.save();
       ctx.fillStyle = '#000';
       ctx.fillRect(0, 0, 480, 480);
@@ -2479,7 +2521,7 @@ function frame(ts) {
         ctx.drawImage(thumbCache[t], 0, 0, 480, 480);
       } else drawTextMode(ctx, st.slots[slot] ? (st.slots[slot] === 2 ? 'ANIMATION ' : 'PICTURE ') + (slot + 1) : 'NO|IMAGE', '#5A5A5A', '#000000');
     } else if (mode === 4) drawTextMode(ctx, st.text, st.textFg, st.textBg);
-    if (mode >= 3 && off) ctx.restore();
+    if ((mode === 3 || mode === 4) && off) ctx.restore();
     // Dim the preview like the real thing.
     const b = st.night ? st.nightBrightness : st.powerMode === 1 ? st.showBrightness : st.brightness;
     ctx.fillStyle = `rgba(0,0,0,${(1 - b / 100) * 0.8})`;

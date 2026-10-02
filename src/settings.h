@@ -10,6 +10,7 @@ enum Mode : uint8_t {
     MODE_STRIPES,      // M-style tri-colour stripes
     MODE_IMAGE,        // uploaded picture / animation
     MODE_TEXT,         // custom text in the middle
+    MODE_M50,          // "50 Years of BMW M" badge
     MODE_COUNT
 };
 

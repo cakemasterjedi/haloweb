@@ -18,6 +18,7 @@ there's no app to install.
 | **Stripes** | M tri-colour stripes on carbon-fibre twill | 0 = static, otherwise scrolls |
 | **Picture** | Photos, GIFs or videos from your phone (10 slots). Fill / Fit / Fit circle, zoom (pinch), drag, rotate | – |
 | **Text** | Your own text, `\|` starts a new line (e.g. `M\|POWER`) | – |
+| **M 50** | The "50 Years of BMW M" badge (the 1973 BMW Motorsport emblem): a small classic roundel on white enamel with light blue, dark blue and red half circles around it | – |
 
 All modes also have **brightness** and **rotation** (to level the emblem if it's
 mounted at an angle). Settings are saved on the board.

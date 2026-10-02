@@ -41,7 +41,7 @@ state = {
 }
 tz_min = 0
 clock_offset = None  # phone time - server time, once set
-LIMITS = {"mode": (0, 4), "brightness": (5, 100), "speed": (-100, 100), "imageSlot": (0, 9),
+LIMITS = {"mode": (0, 5), "brightness": (5, 100), "speed": (-100, 100), "imageSlot": (0, 9),
           "angle": (-180, 180), "spacing": (0, 30), "startupAnim": (0, 1), "powerMode": (0, 1),
           "autoOffMin": (0, 720), "showHours": (0, 48), "showBrightness": (5, 100), "lowVoltOn": (0, 1),
           "voltSource": (0, 2), "cycleItems": (0, 0x3FFFF), "cycleSec": (0, 3600), "animSpeed": (25, 300),
@@ -53,7 +53,7 @@ LIMITS = {"mode": (0, 4), "brightness": (5, 100), "speed": (-100, 100), "imageSl
 
 def refresh():
     """Derived fields the firmware computes."""
-    items = sum(1 for m in (0, 1, 2, 4) if state["cycleItems"] >> m & 1)
+    items = sum(1 for m in (0, 1, 2, 4, 5) if state["cycleItems"] >> m & 1)
     items += sum(1 for i, k in enumerate(state["slots"]) if k and state["cycleItems"] >> (8 + i) & 1)
     state["cycling"] = bool(state["cycleSec"]) and items >= 2
     state["showMode"], state["showSlot"] = state["mode"], state["imageSlot"]

@@ -96,11 +96,12 @@ private:
 
     void buildTables();
     void layoutLabel();
-    float labelCoverage(int idx, float r, float offset, float &height) const;
+    float labelCoverage(const LabelLayout &l, int idx, float r, float offset, float &height) const;
     static int roundelMixCount();
     void buildRoundelGeometry();
     void buildRoundelLayer();
     void buildCarbonLayer();
+    void buildM50();
     void drawDisc(float phi);
     void drawStripes(float offset, bool repeat, uint16_t *out);
     void drawText();
@@ -119,7 +120,9 @@ private:
     Settings s_;
     uint16_t *frame_ = nullptr;
     uint16_t *layer_ = nullptr;   // the roundel without its quarters
-    uint16_t *carbon_ = nullptr;  // carbon fibre behind the stripes; scratch space in text mode
+    uint16_t *carbon_ = nullptr;
+    uint16_t *m50_ = nullptr;     // the M 50 design, drawn once
+    bool m50Valid_ = false;  // carbon fibre behind the stripes; scratch space in text mode
     // The roundel's shape, worked out once: per pixel, how much of each colour
     // (rim, ring, quarters) and white it takes (see buildRoundelGeometry).
     uint8_t *roundelMix_ = nullptr;

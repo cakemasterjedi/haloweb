@@ -200,10 +200,11 @@ bool Renderer::begin(AllocFn alloc) {
     mask_ = static_cast<uint8_t *>(alloc(px));
     shadow_ = static_cast<uint8_t *>(alloc(px));
     carbon_ = static_cast<uint16_t *>(alloc(px * 2));
+    m50_ = static_cast<uint16_t *>(alloc(px * 2));
     roundelMix_ = static_cast<uint8_t *>(alloc(size_t(roundelMixCount()) * 4));
     discMix_ = static_cast<uint8_t *>(alloc(DISC * DISC * 2));
     if (!frame_ || !layer_ || !image_ || !angle_ || !discA_ || !discB_ || !vignette_ || !mask_ || !shadow_ ||
-        !carbon_ || !roundelMix_ || !discMix_) {
+        !carbon_ || !roundelMix_ || !discMix_ || !m50_) {
         return false;
     }
     memset(frame_, 0, px * 2);
@@ -237,6 +238,7 @@ void Renderer::apply(const Settings &s) {
     }
     if (s.quadA != s_.quadA || s.quadB != s_.quadB) roundelValid_ = discValid_ = false;
     if (s.stripeBg != s_.stripeBg) carbonValid_ = false;
+    if (s.angle != s_.angle) m50Valid_ = false;
     s_ = s;
     dirty_ = true;
 }
@@ -328,8 +330,7 @@ void Renderer::layoutLabel() {
 
 // Coverage (0..1) of the ring lettering at a pixel; height is how far up the
 // letter it is (0 at the baseline, 1 at the cap height).
-float Renderer::labelCoverage(int idx, float r, float offset, float &height) const {
-    const LabelLayout &l = label_;
+float Renderer::labelCoverage(const LabelLayout &l, int idx, float r, float offset, float &height) const {
     if (!l.count) return 0;
     // Clockwise from the top, from the angle table (atan2 is slow on the ESP32).
     float a = angle_[idx] * (2 * PI_F / 65535.0f) - offset;
@@ -512,7 +513,7 @@ void Renderer::buildRoundelLayer() {
                 // towards the centre.
                 const float r = sqrtf(r2);
                 float h = 0;
-                const float cov = labelCoverage(y * W + x, r, offset, h);
+                const float cov = labelCoverage(label_, y * W + x, r, offset, h);
                 if (cov > 0) {
                     float shade, gloss;
                     ringShading(fx, fy, r, shade, gloss);
@@ -861,6 +862,111 @@ INTRO_HOT Rect Renderer::drawIntro(float t, bool intoRoundel, uint16_t *target) 
 }
 
 // ---------------------------------------------------------------------------
+// M 50: the "50 Years of BMW M" badge (the 1973 BMW Motorsport emblem). A
+// small classic roundel on a white enamel face, with three half circles
+// around it: light blue over the top (outermost), dark blue down the right,
+// red under the bottom (innermost), each cut straight across at the centre.
+// Radii are measured from the real badge (face radius = R_RING).
+
+namespace {
+const float M50_LIGHT_IN = 202.0f, M50_LIGHT_OUT = 229.0f;
+const float M50_DARK_IN = 174.5f, M50_DARK_OUT = 200.5f;
+const float M50_RED_IN = 148.0f, M50_RED_OUT = 175.0f;
+const float M50_RING_OUT = 147.0f;   // thin chrome edge of the small roundel's black ring
+const float M50_BLACK_OUT = 144.0f;  // black ring
+const float M50_RIM_OUT = 90.0f;     // chrome ring around the quarters
+const float M50_DISC = 86.0f;        // quarters
+const RGBf M50_FACE = {240, 241, 240};
+const RGBf M50_LIGHT = {98, 164, 232};
+const RGBf M50_DARK = {28, 46, 122};
+const RGBf M50_RED = {224, 36, 40};
+const RGBf M50_SILVER = {196, 200, 206};
+
+// Fraction of a pixel between radii a and b.
+inline float between(float a, float b, float r) {
+    return clamp01(inside(b, r) - inside(a, r));
+}
+
+RGBf rimColour(const ColourMix &m, const RGBf &rim) {
+    return add(scale(rim, m.rim), m.white);
+}
+}  // namespace
+
+void Renderer::buildM50() {
+    const float offset = s_.angle * PI_F / 180.0f;
+    const float cs = cosf(offset), sn = sinf(offset);
+    // "BMW" around the top of the small black ring.
+    LabelLayout l;
+    l.count = 0;
+    for (const char *p = "BMW"; *p; p++) l.glyph[l.count++] = labelGlyph(*p);
+    l.scale = 40.0f / LABEL_FONT_CAP;
+    l.step = 54 * PI_F / 180;
+    l.baseline = 117.0f - 40.0f / 2;
+    const RGBf blue = rgbf(CLASSIC_BLUE), white = WHITE;
+
+    for (int y = 0; y < H; y++) {
+        const float fy = y + 0.5f - CY;
+        uint16_t *row = m50_ + y * W;
+        for (int x = 0; x < W; x++) {
+            const float fx = x + 0.5f - CX;
+            const float r2 = fx * fx + fy * fy;
+            if (r2 > (R_EDGE + 1) * (R_EDGE + 1)) {
+                row[x] = 0;
+                continue;
+            }
+            const float r = sqrtf(r2);
+            // Turned with the rotation setting; the light stays put.
+            const float ux = fx * cs + fy * sn, uy = -fx * sn + fy * cs;
+            // Soft light from the upper left over the enamel.
+            const float lit = 0.94f + 0.06f * clamp01(0.5f - (fx + fy) / (2 * R_RING));
+            RGBf c = BLACK;
+            if (r < R_EDGE + 1) {
+                c = mix(c, rimColour(chrome(MIX_RIM, fx, fy, r, R_RING - 1, R_EDGE), M50_SILVER), inside(R_EDGE, r));
+            }
+            if (r < R_RING + 1) {
+                RGBf face = M50_FACE;
+                face = mix(face, M50_LIGHT, between(M50_LIGHT_IN, M50_LIGHT_OUT, r) * clamp01(0.5f - uy));
+                face = mix(face, M50_DARK, between(M50_DARK_IN, M50_DARK_OUT, r) * clamp01(ux + 0.5f));
+                face = mix(face, M50_RED, between(M50_RED_IN, M50_RED_OUT, r) * clamp01(uy + 0.5f));
+                c = mix(c, scale(face, lit), inside(R_RING, r));
+            }
+            if (r < M50_RING_OUT + 1) {
+                c = mix(c, rimColour(chrome(MIX_RIM, fx, fy, r, M50_BLACK_OUT - 1, M50_RING_OUT), M50_SILVER),
+                        inside(M50_RING_OUT, r));
+            }
+            if (r < M50_BLACK_OUT + 1) {
+                // Glossy black ring with the lettering.
+                const float top = clamp01(-fy / (r + 1));
+                RGBf ring = {14 + 30 * top * top, 14 + 30 * top * top, 16 + 32 * top * top};
+                float h = 0;
+                const float cov = r > M50_RIM_OUT ? labelCoverage(l, y * W + x, r, offset, h) : 0;
+                // Chrome letters: darker at the foot, bright at the top.
+                if (cov > 0) ring = mix(ring, mix(scale(M50_SILVER, 0.7f), add(M50_SILVER, 30), clamp01(h)), cov);
+                c = mix(c, ring, inside(M50_BLACK_OUT, r));
+            }
+            if (r < M50_RIM_OUT + 1) {
+                c = mix(c, rimColour(chrome(MIX_RIM, fx, fy, r, M50_DISC - 1, M50_RIM_OUT), M50_SILVER),
+                        inside(M50_RIM_OUT, r));
+            }
+            if (r < M50_DISC + 1) {
+                // Quarters: blue top left and bottom right, a little lighter
+                // towards the top left, with thin silver lines between.
+                const float t = clamp01(((fx + fy) * 0.7071f / M50_DISC + 1) / 2);
+                const float shade = 1.0f - 0.18f * t;
+                const float gloss = 0.12f * (1 - t);
+                RGBf q = (ux * uy > 0) ? blue : white;
+                q = mix(scale(q, shade), WHITE, gloss);
+                const float d = fminf(fabsf(ux), fabsf(uy));
+                q = mix(q, scale(M50_SILVER, 0.8f), clamp01(0.6f + 0.5f - d));
+                c = mix(c, q, inside(M50_DISC, r));
+            }
+            row[x] = to565d(c, x, y);
+        }
+    }
+    m50Valid_ = true;
+}
+
+// ---------------------------------------------------------------------------
 // Stripes
 
 // Carbon-fibre twill with a soft diagonal sheen and vignette.
@@ -1201,6 +1307,11 @@ Rect Renderer::render(uint32_t ms, uint16_t *introTarget) {
         case MODE_IMAGE:
             if (!wasDirty) return {0, 0, 0, 0};
             drawImage();
+            return full;
+        case MODE_M50:
+            if (!wasDirty) return {0, 0, 0, 0};
+            if (!m50Valid_) buildM50();
+            memcpy(frame_, m50_, size_t(W) * H * 2);
             return full;
         case MODE_TEXT:
             if (!wasDirty) return {0, 0, 0, 0};
