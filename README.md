@@ -76,6 +76,9 @@ The board has a motion sensor (QMI8658), used for:
 - **Double-tap to change design:** tap the badge twice for the next design
   (the next auto-cycle design, or the next mode / picture). Ignored while
   driving. The page shows the last jolt so you can pick the sensitivity.
+- **Driving design:** pick a design (e.g. Spin, or an animation) that takes
+  over after about 5 s of driving; the normal design comes back once the car
+  has been still for a minute, so it doesn't flip at every red light.
 - **Welcome animation:** when the car has been still for 5 minutes, the next
   jolt (a door or the boot shutting) plays a welcome clip: the built-in
   animation or any picture/animation slot. Pick how big a jolt it needs.

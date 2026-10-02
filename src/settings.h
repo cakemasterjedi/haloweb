@@ -36,7 +36,7 @@ struct DateRule {
     uint8_t mode;  // Mode
     uint8_t slot;  // picture slot for MODE_IMAGE
 };
-static const uint32_t SETTINGS_VERSION = 9;
+static const uint32_t SETTINGS_VERSION = 10;
 static const uint32_t CLASSIC_BLUE = 0x2C8BD6;  // default quarter colour
 
 struct Settings {
@@ -109,12 +109,18 @@ struct Settings {
 
     // Version 9.
     alignas(4) uint8_t unused9;  // was "display output on core 0" (tore the picture, didn't help)
+
+    // Version 10.
+    alignas(4) uint8_t driveOn;  // show a design of its own while driving
+    uint8_t driveMode;           // Mode
+    uint8_t driveSlot;           // picture slot when driveMode is MODE_IMAGE
 };
 
-// Size of the stored settings before versions 7 and 8.
+// Size of the stored settings before versions 7 to 10.
 static const size_t SETTINGS_V6_SIZE = offsetof(Settings, cycleItems);
 static const size_t SETTINGS_V7_SIZE = offsetof(Settings, welcomeOn);
 static const size_t SETTINGS_V8_SIZE = offsetof(Settings, unused9);
+static const size_t SETTINGS_V9_SIZE = offsetof(Settings, driveOn);
 
 inline void settingsDefaults(Settings &s) {
     memset(&s, 0, sizeof(s));
@@ -172,6 +178,10 @@ inline void settingsDefaults(Settings &s) {
     s.welcomeSlot = 0;
     s.welcomeSens = 2;
     s.restMin = 0;
+
+    s.driveOn = 0;
+    s.driveMode = MODE_SPIN;
+    s.driveSlot = 0;
 
     strcpy(s.apSsid, "BMW-Emblem");
     strcpy(s.apPass, "emblem123");

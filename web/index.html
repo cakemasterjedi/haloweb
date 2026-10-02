@@ -465,6 +465,12 @@
         <p class="hint" style="margin-top:0">Spin, Stripes and animations speed up when you accelerate or brake. 0 = off.</p>
         <div class="row"><label for="doubleTap">Double-tap to change design<span class="sub" id="joltInfo"></span></label>
           <select id="doubleTap"><option value="0">Off</option><option value="1">Firm taps</option><option value="2">Normal</option><option value="3">Light taps</option></select></div>
+        <h2 style="margin-top:14px">Driving</h2>
+        <div class="row"><label for="driveOn">Driving design<span class="sub">Shown after a few seconds of driving; the normal design comes back a minute after you stop</span></label>
+          <label class="switch"><input type="checkbox" id="driveOn"><span></span></label></div>
+        <div id="driveOpts">
+          <div class="row"><label for="driveSel">Show</label><select id="driveSel"></select></div>
+        </div>
         <h2 style="margin-top:14px">Welcome</h2>
         <div class="row"><label for="welcomeOn">Welcome animation<span class="sub">Plays on a jolt (a door or the boot shutting) after the car has been still for 5 minutes</span></label>
           <label class="switch"><input type="checkbox" id="welcomeOn"><span></span></label></div>
@@ -744,6 +750,7 @@ function fillControls() {
   $('nightTo').value = hhmm(st.nightTo);
   $('doubleTap').value = st.doubleTap;
   $('welcomeOn').checked = !!st.welcomeOn;
+  $('driveOn').checked = !!st.driveOn;
   $('welcomeSens').value = st.welcomeSens;
   $('restMin').value = st.restMin;
   $('displayWarn').classList.toggle('hidden', st.display !== false);
@@ -769,6 +776,7 @@ function updateUi() {
   $('dimOpts').classList.toggle('hidden', !st.autoDim);
   renderCyclePicks();
   renderRules();
+  fillDriveSel();
   updateLive();
   $('pictureHint').textContent = `Showing slot ${st.imageSlot + 1}` +
     (st.slots && st.slots[st.imageSlot] === 2 ? ' (animation).' : st.slots && st.slots[st.imageSlot] ? '.' : ', which is empty.');
@@ -826,9 +834,18 @@ function updateLive() {
   $('levelNow').disabled = !st.levelSet;
   const item = previewItem();
   $('heroMode').textContent = st.resting ? 'Screen off (parked)'
-    : (st.activeRule >= 0 ? 'Special date · ' : st.cycling ? 'Auto-cycle · ' : '') +
+    : (st.driving && st.driveOn ? 'Driving · ' : st.activeRule >= 0 ? 'Special date · ' : st.cycling ? 'Auto-cycle · ' : '') +
       (MODES[item.mode] ? designName(item.mode, item.slot) : '');
   $('welcomeOpts').classList.toggle('hidden', !st.welcomeOn);
+  $('driveOpts').classList.toggle('hidden', !st.driveOn);
+}
+
+// The design shown while driving: any mode or filled picture slot.
+function fillDriveSel() {
+  const el = $('driveSel');
+  if (el === document.activeElement) return;
+  el.innerHTML = designOptions().map(([m, sl]) => `<option value="${m}.${sl}">${designName(m, sl)}</option>`).join('');
+  el.value = `${st.driveMode}.${st.driveMode === 3 ? st.driveSlot : 0}`;
 }
 
 // ---------------------------------------------------------------- special dates
@@ -1057,6 +1074,11 @@ function setupSystem() {
   $('fades').onchange = (e) => send({fades: e.target.checked ? 1 : 0});
   $('doubleTap').onchange = (e) => send({doubleTap: +e.target.value});
   $('welcomeOn').onchange = (e) => send({welcomeOn: e.target.checked ? 1 : 0});
+  $('driveOn').onchange = (e) => send({driveOn: e.target.checked ? 1 : 0});
+  $('driveSel').onchange = (e) => {
+    const [driveMode, driveSlot] = e.target.value.split('.').map(Number);
+    send({driveMode, driveSlot});
+  };
   $('motionOn').onchange = (e) => send({motionOff: e.target.checked ? 0 : 1});
   $('welcomeSlot').onchange = (e) => send({welcomeSlot: +e.target.value});
   $('welcomeSens').onchange = (e) => send({welcomeSens: +e.target.value});
@@ -1130,6 +1152,7 @@ function renderSlots() {
   if ($('bootSel') !== document.activeElement && $('welcomeSlot') !== document.activeElement) fillBootSel();
   renderCyclePicks();
   renderRules();
+  fillDriveSel();
   if (st.fsTotalKB) {
     const mb = (kb) => (kb / 1024).toFixed(kb < 10240 ? 1 : 0);
     const where = st.storage === 'sd' ? 'Micro SD card' : 'Internal storage';
