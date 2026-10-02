@@ -253,7 +253,7 @@
           <option value="120">2 min</option><option value="300">5 min</option><option value="600">10 min</option>
         </select></div>
       <div id="cycleOpts">
-        <p class="hint" style="margin:4px 0 10px">Designs to include (pick at least two):</p>
+        <p class="hint" style="margin:4px 0 10px" id="cycleHint">Designs to include (pick at least two):</p>
         <div class="picks" id="cyclePicks"></div>
       </div>
     </div>
@@ -764,7 +764,8 @@ function updateUi() {
   const anims = st.slots && st.slots.some((k, i) => k === 2 && ((st.mode === 3 && st.imageSlot === i) ||
     (st.cycling && st.cycleItems & (1 << (8 + i)))));
   $('animSpeedRow').classList.toggle('hidden', !anims);
-  $('cycleOpts').classList.toggle('hidden', !st.cycleSec);
+  $('cycleHint').textContent = st.cycleSec ? 'Designs to include (pick at least two):'
+    : 'Pick the designs to include (at least two), then choose how often to change above.';
   $('dimOpts').classList.toggle('hidden', !st.autoDim);
   renderCyclePicks();
   renderRules();

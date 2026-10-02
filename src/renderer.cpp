@@ -55,6 +55,10 @@ RGBf scale(const RGBf &a, float f) {
     return {a.r * f, a.g * f, a.b * f};
 }
 
+RGBf add(const RGBf &a, float v) {
+    return {a.r + v, a.g + v, a.b + v};
+}
+
 inline float clamp01(float v) {
     return v < 0 ? 0 : (v > 1 ? 1 : v);
 }
@@ -126,26 +130,25 @@ float segDist2(float px, float py, float x0, float y0, float x1, float y1) {
 // Done on a ColourMix (how much rim colour and white), so it is worked out
 // once for any rim colour.
 struct ColourMix {
-    float rim, ring, label, disc, white;  // white: added to all channels, 0..255
+    float rim, ring, disc, white;  // white: added to all channels, 0..255
 };
-const ColourMix MIX_BLACK = {0, 0, 0, 0, 0};
-const ColourMix MIX_WHITE = {0, 0, 0, 0, 255};
-const ColourMix MIX_RIM = {1, 0, 0, 0, 0};
-const ColourMix MIX_RING = {0, 1, 0, 0, 0};
-const ColourMix MIX_LABEL = {0, 0, 1, 0, 0};
-const ColourMix MIX_DISC = {0, 0, 0, 1, 0};  // half way between the quarter colours
+const ColourMix MIX_BLACK = {0, 0, 0, 0};
+const ColourMix MIX_WHITE = {0, 0, 0, 255};
+const ColourMix MIX_RIM = {1, 0, 0, 0};
+const ColourMix MIX_RING = {0, 1, 0, 0};
+const ColourMix MIX_DISC = {0, 0, 1, 0};  // half way between the quarter colours
 
 ColourMix mix(const ColourMix &a, const ColourMix &b, float t) {
-    return {a.rim + (b.rim - a.rim) * t, a.ring + (b.ring - a.ring) * t, a.label + (b.label - a.label) * t,
-            a.disc + (b.disc - a.disc) * t, a.white + (b.white - a.white) * t};
+    return {a.rim + (b.rim - a.rim) * t, a.ring + (b.ring - a.ring) * t, a.disc + (b.disc - a.disc) * t,
+            a.white + (b.white - a.white) * t};
 }
 
 ColourMix scale(const ColourMix &a, float f) {
-    return {a.rim * f, a.ring * f, a.label * f, a.disc * f, a.white * f};
+    return {a.rim * f, a.ring * f, a.disc * f, a.white * f};
 }
 
 ColourMix add(const ColourMix &a, float v) {
-    return {a.rim, a.ring, a.label, a.disc, a.white + v};
+    return {a.rim, a.ring, a.disc, a.white + v};
 }
 
 // Stored as bytes: rim * 200 (it can go a little over 1), the others * 255,
@@ -197,7 +200,7 @@ bool Renderer::begin(AllocFn alloc) {
     mask_ = static_cast<uint8_t *>(alloc(px));
     shadow_ = static_cast<uint8_t *>(alloc(px));
     carbon_ = static_cast<uint16_t *>(alloc(px * 2));
-    roundelMix_ = static_cast<uint8_t *>(alloc(size_t(roundelMixCount()) * 5));
+    roundelMix_ = static_cast<uint8_t *>(alloc(size_t(roundelMixCount()) * 4));
     discMix_ = static_cast<uint8_t *>(alloc(DISC * DISC * 2));
     if (!frame_ || !layer_ || !image_ || !angle_ || !discA_ || !discB_ || !vignette_ || !mask_ || !shadow_ ||
         !carbon_ || !roundelMix_ || !discMix_) {
@@ -228,12 +231,11 @@ void Renderer::buildTables() {
 
 void Renderer::apply(const Settings &s) {
     // Only rebuild what the change affects (the roundel takes a while).
-    if (s.angle != s_.angle || s.spacing != s_.spacing || strcmp(s.labelText, s_.labelText) != 0) {
-        geometryValid_ = roundelValid_ = false;
-    }
-    if (s.rim != s_.rim || s.ring != s_.ring || s.label != s_.label || s.quadA != s_.quadA || s.quadB != s_.quadB) {
+    if (s.angle != s_.angle || s.spacing != s_.spacing || strcmp(s.labelText, s_.labelText) != 0 ||
+        s.rim != s_.rim || s.ring != s_.ring || s.label != s_.label) {
         roundelValid_ = false;
     }
+    if (s.quadA != s_.quadA || s.quadB != s_.quadB) roundelValid_ = discValid_ = false;
     if (s.stripeBg != s_.stripeBg) carbonValid_ = false;
     s_ = s;
     dirty_ = true;
@@ -385,14 +387,31 @@ static uint8_t mixByte(float v) {
     return v <= 0 ? 0 : (v >= 255 ? 255 : uint8_t(v + 0.5f));
 }
 
-// The roundel's shape and shading, which depend on the label and the angle
-// but not on the colours: per pixel, how much of each colour it takes.
-void Renderer::buildRoundelGeometry() {
-    layoutLabel();
-    const float offset = s_.angle * PI_F / 180.0f;
-    const float labelIn = label_.baseline - 14 * label_.scale;
-    const float labelOut = label_.baseline + (LABEL_FONT_CAP + LABEL_FONT_TOP + 1) * label_.scale;
+// Glossy black ring: a soft reflection over the top half, slightly darker
+// next to the rims. The ring colour is scaled by shade, then gloss is added.
+static void ringShading(float fx, float fy, float r, float &shade, float &gloss) {
+    const float across = (r - R_INNER_RIM) / (R_RING - R_INNER_RIM);
+    shade = 1 - 0.3f * (smoothstep(0.8f, 1.0f, across) + smoothstep(0.2f, 0.0f, across));
+    const float top = clamp01(-fy / r);
+    const float lit = clamp01((fx * LX + fy * LY) / r);
+    float g = 0.55f * top * top + 0.45f * lit * lit * lit;
+    g *= 1 - fabsf(across - 0.5f) * 1.4f;
+    gloss = 38.0f * clamp01(g) * shade;
+}
 
+// How much of the ring shows at radius r (the rest is rims and the disc).
+static float ringWeight(float r) {
+    if (r >= R_RING + 1) return 0;
+    float w = inside(R_RING, r);
+    if (r < R_INNER_RIM + 1) w *= 1 - inside(R_INNER_RIM, r);
+    if (r < R_DISC + 1) w *= 1 - inside(R_DISC, r);
+    return w;
+}
+
+// The roundel's shape and shading without the lettering, which don't depend
+// on any setting: per pixel, how much of each colour it takes. Worked out
+// once; the lettering and colours are added in buildRoundelLayer().
+void Renderer::buildRoundelGeometry() {
     uint8_t *m = roundelMix_;
     for (int y = 0; y < H; y++) {
         float fy = y + 0.5f - CY;
@@ -406,26 +425,9 @@ void Renderer::buildRoundelGeometry() {
                 c = mix(c, chrome(MIX_RIM, fx, fy, r, R_RING - 1, R_EDGE), inside(R_EDGE, r));
             }
             if (r < R_RING + 1) {
-                // Glossy black ring: a soft reflection over the top half,
-                // slightly darker next to the rims.
-                float across = (r - R_INNER_RIM) / (R_RING - R_INNER_RIM);
-                float edgeShade = 1 - 0.3f * (smoothstep(0.8f, 1.0f, across) + smoothstep(0.2f, 0.0f, across));
-                float top = clamp01(-fy / r);
-                float lit = clamp01((fx * LX + fy * LY) / r);
-                float gloss = 0.55f * top * top + 0.45f * lit * lit * lit;
-                gloss *= 1 - fabsf(across - 0.5f) * 1.4f;
-                ColourMix ringPx = scale(add(MIX_RING, 38.0f * clamp01(gloss)), edgeShade);
-
-                if (r > labelIn && r < labelOut) {
-                    float h = 0;
-                    float cov = labelCoverage(y * W + x, r, offset, h);
-                    if (cov > 0) {
-                        // White letters, a touch greyer towards the centre.
-                        ColourMix l = mix(scale(MIX_LABEL, 0.84f), MIX_LABEL, clamp01(0.25f + h));
-                        ringPx = mix(ringPx, l, cov);
-                    }
-                }
-                c = mix(c, ringPx, inside(R_RING, r));
+                float shade, gloss;
+                ringShading(fx, fy, r, shade, gloss);
+                c = mix(c, add(scale(MIX_RING, shade), gloss), inside(R_RING, r));
             }
             if (r < R_INNER_RIM + 1) {
                 c = mix(c, chrome(MIX_RIM, fx, fy, r, R_DISC - 1, R_INNER_RIM), inside(R_INNER_RIM, r));
@@ -435,10 +437,9 @@ void Renderer::buildRoundelGeometry() {
             }
             m[0] = mixByte(c.rim * RIM_STEPS);
             m[1] = mixByte(c.ring * 255);
-            m[2] = mixByte(c.label * 255);
-            m[3] = mixByte(c.disc * 255);
-            m[4] = mixByte(c.white);
-            m += 5;
+            m[2] = mixByte(c.disc * 255);
+            m[3] = mixByte(c.white);
+            m += 4;
         }
     }
 
@@ -468,16 +469,22 @@ void Renderer::buildRoundelGeometry() {
     geometryValid_ = true;
 }
 
-// The roundel in the current colours, from the stored mixes.
+// The roundel in the current colours, with its lettering, from the stored
+// mixes. Fast enough to follow the colour, rotation and letter settings live.
 void Renderer::buildRoundelLayer() {
     if (!geometryValid_) buildRoundelGeometry();
+    layoutLabel();
+    const float offset = s_.angle * PI_F / 180.0f;
+    const float labelIn = label_.baseline - 14 * label_.scale;
+    const float labelOut = fminf(label_.baseline + (LABEL_FONT_CAP + LABEL_FONT_TOP + 1) * label_.scale, R_RING + 1);
+    const float labelIn2 = labelIn * labelIn, labelOut2 = labelOut * labelOut;
+
+    const RGBf ringC = rgbf(s_.ring), labelC = rgbf(s_.label);
     const RGBf rim = scale(rgbf(s_.rim), 1 / RIM_STEPS);
-    const RGBf ring = scale(rgbf(s_.ring), 1 / 255.0f);
-    const RGBf label = scale(rgbf(s_.label), 1 / 255.0f);
+    const RGBf ring = scale(ringC, 1 / 255.0f);
     const RGBf qa = rgbf(s_.quadA), qb = rgbf(s_.quadB);
     const RGBf qmid = mix(qa, qb, 0.5f);
     const RGBf disc = scale(qmid, 1 / 255.0f);
-
     uint16_t plain[16];  // the middle of the disc, dithered
     for (int i = 0; i < 16; i++) plain[i] = to565d(qmid, i & 3, i >> 2);
 
@@ -496,23 +503,40 @@ void Renderer::buildRoundelLayer() {
                 row[x] = plain[(y & 3) * 4 + (x & 3)];
                 continue;
             }
-            const float a = m[0], b = m[1], c = m[2], d = m[3], w = m[4];
-            m += 5;
-            const RGBf px = {a * rim.r + b * ring.r + c * label.r + d * disc.r + w,
-                             a * rim.g + b * ring.g + c * label.g + d * disc.g + w,
-                             a * rim.b + b * ring.b + c * label.b + d * disc.b + w};
+            const float a = m[0], b = m[1], d = m[2], w = m[3];
+            m += 4;
+            RGBf px = {a * rim.r + b * ring.r + d * disc.r + w, a * rim.g + b * ring.g + d * disc.g + w,
+                       a * rim.b + b * ring.b + d * disc.b + w};
+            if (r2 > labelIn2 && r2 < labelOut2) {
+                // Lettering over the ring: white letters, a touch greyer
+                // towards the centre.
+                const float r = sqrtf(r2);
+                float h = 0;
+                const float cov = labelCoverage(y * W + x, r, offset, h);
+                if (cov > 0) {
+                    float shade, gloss;
+                    ringShading(fx, fy, r, shade, gloss);
+                    const RGBf under = add(scale(ringC, shade), gloss);
+                    const RGBf l = mix(scale(labelC, 0.84f), labelC, clamp01(0.25f + h));
+                    const float k = cov * ringWeight(r);
+                    px = {px.r + (l.r - under.r) * k, px.g + (l.g - under.g) * k, px.b + (l.b - under.b) * k};
+                }
+            }
             row[x] = to565d(px, x, y);
         }
     }
 
-    const RGBf qa255 = scale(qa, 1 / 255.0f), qb255 = scale(qb, 1 / 255.0f);
-    for (int y = 0; y < DISC; y++) {
-        const uint8_t *dm = discMix_ + y * DISC * 2;
-        for (int x = 0; x < DISC; x++) {
-            const float k = dm[x * 2], w = dm[x * 2 + 1];
-            discA_[y * DISC + x] = to565d({qa255.r * k + w, qa255.g * k + w, qa255.b * k + w}, x, y);
-            discB_[y * DISC + x] = to565d({qb255.r * k + w, qb255.g * k + w, qb255.b * k + w}, x, y);
+    if (!discValid_) {
+        const RGBf qa255 = scale(qa, 1 / 255.0f), qb255 = scale(qb, 1 / 255.0f);
+        for (int y = 0; y < DISC; y++) {
+            const uint8_t *dm = discMix_ + y * DISC * 2;
+            for (int x = 0; x < DISC; x++) {
+                const float k = dm[x * 2], w = dm[x * 2 + 1];
+                discA_[y * DISC + x] = to565d({qa255.r * k + w, qa255.g * k + w, qa255.b * k + w}, x, y);
+                discB_[y * DISC + x] = to565d({qb255.r * k + w, qb255.g * k + w, qb255.b * k + w}, x, y);
+            }
         }
+        discValid_ = true;
     }
     divider_ = to565(scale(rgbf(s_.rim), 0.8f));
     roundelValid_ = true;
@@ -863,71 +887,112 @@ void Renderer::buildCarbonLayer() {
     carbonValid_ = true;
 }
 
-void Renderer::drawStripes(float offset, bool repeat) {
+// Across the stripes everything depends only on the position across them
+// (pos), so it's worked out once per frame in steps of 1/STRIPE_RES pixel.
+constexpr int STRIPE_RES = 4;
+constexpr float STRIPE_W = 58.0f;           // one stripe
+constexpr float STRIPE_PERIOD = 6 * STRIPE_W;  // three stripes, then as much carbon (scrolling)
+constexpr float STRIPE_SHADOW = 16.0f;      // shadow of the stripes on the carbon
+// Without scrolling, pos runs over the stripes plus their shadows.
+constexpr float STRIPE_LO = -STRIPE_SHADOW - 2, STRIPE_HI = 3 * STRIPE_W + STRIPE_SHADOW + 2;
+
+struct StripeStep {
+    float r, g, b;   // stripe colour (0..255), before the edge darkening
+    int16_t bg;      // carbon brightness, /256 (the shadow)
+    int16_t cover;   // how much of the pixel is stripe, /256
+};
+
+INTRO_HOT void Renderer::drawStripes(float offset, bool repeat, uint16_t *out) {
     if (!carbonValid_) buildCarbonLayer();
+    const float w = STRIPE_W, period = STRIPE_PERIOD;
+    const float lo = repeat ? 0 : STRIPE_LO;
+    const int steps = int(((repeat ? period : STRIPE_HI) - lo) * STRIPE_RES);
+    static_assert(STRIPE_HI - STRIPE_LO <= STRIPE_PERIOD, "the scrolling table is the bigger one");
+    static StripeStep prof[int(STRIPE_PERIOD * STRIPE_RES) + 2];
 
     // Each stripe is slightly rounded: lighter in the middle, darker at the edges.
     const RGBf cols[3] = {rgbf(s_.stripe1), rgbf(s_.stripe2), rgbf(s_.stripe3)};
-    static uint16_t shades[3][16];
-    for (int b = 0; b < 3; b++) {
-        for (int k = 0; k < 16; k++) {
-            float f = sinf(PI_F * (k + 0.5f) / 16);
-            shades[b][k] = to565(mix(scale(cols[b], 0.72f + 0.3f * f), WHITE, 0.1f * f * f));
+    for (int i = 0; i <= steps; i++) {
+        const float pos = lo + (i + 0.5f) / STRIPE_RES;
+        // Distance outside the stripe group (for its shadow on the carbon).
+        float out;
+        if (repeat) {
+            out = pos < 3 * w ? -1 : fminf(pos - 3 * w, period - pos);
+        } else {
+            out = pos < 0 ? -pos : (pos >= 3 * w ? pos - 3 * w : -1);
         }
+        StripeStep &st = prof[i];
+        st.bg = 256;
+        if (out >= 0 && out < STRIPE_SHADOW) {
+            const float sh = 1 - out / STRIPE_SHADOW;
+            st.bg = int16_t(256 * (1 - 0.6f * sh * sh));
+        }
+        st.cover = out < 0 ? 256 : (out < 0.5f ? int16_t((0.5f - out) * 256) : 0);
+        int b = int(floorf(pos / w));
+        b = b < 0 ? 0 : (b > 2 ? 2 : b);
+        const float f = sinf(PI_F * clamp01(pos / w - b));
+        const RGBf c = mix(scale(cols[b], 0.72f + 0.3f * f), WHITE, 0.1f * f * f);
+        st.r = c.r;
+        st.g = c.g;
+        st.b = c.b;
     }
+    const StripeStep plain = {0, 0, 0, 256, 0};  // carbon away from the stripes
 
-    const float w = 58.0f;
-    const float period = 6 * w;
     const float beta = (s_.angle + 30) * PI_F / 180.0f;
     const float cs = cosf(beta), sn = sinf(beta);
-    const float invW = 1 / w, invPeriod = 1 / period;
-    const float shadowW = 16.0f;
+    const float res = STRIPE_RES, periodRes = period * STRIPE_RES;
+    const float R2 = 240.5f * 240.5f;
+    const float vigK = 0.42f / (240.0f * 240.0f * 240.0f * 240.0f);
 
     for (int y = 0; y < H; y++) {
-        float fy = y + 0.5f - CY;
-        uint16_t *row = frame_ + y * W;
+        const float fy = y + 0.5f - CY;
+        // Only inside the round screen; the corners aren't visible.
+        const float h2 = R2 - fy * fy;
+        if (h2 <= 0) continue;
+        const float half = sqrtf(h2);
+        int x0 = int(CX - half), x1 = int(ceilf(CX + half));
+        x0 = x0 < 0 ? 0 : x0;
+        x1 = x1 > W ? W : x1;
+        uint16_t *row = out + y * W;
         const uint16_t *bgRow = carbon_ + y * W;
-        const uint8_t *vig = vignette_ + y * W;
-        for (int x = 0; x < W; x++) {
-            float fx = x + 0.5f - CX;
-            float q = fx * cs + fy * sn - offset;
-            float pos;
+        // Ordered dither (as to565d) so the stripes' shading doesn't band.
+        float dr[4], dg[4];
+        for (int i = 0; i < 4; i++) {
+            const float d = (BAYER[y & 3][i] - 7.5f) / 16.0f;
+            dr[i] = d * 8 + 0.5f;
+            dg[i] = d * 4 + 0.5f;
+        }
+        // Position across the stripes, in steps, moving along the row.
+        const float fx0 = x0 + 0.5f - CX;
+        // (Without scrolling, the group is centred: pos = q + 1.5 stripes.)
+        float p = ((fx0 * cs + fy * sn - offset) + (repeat ? 0 : 1.5f * w) - lo) * res;
+        const float dp = cs * res;
+        if (repeat) p -= floorf(p / periodRes) * periodRes;
+        const float fy2 = fy * fy;
+        for (int x = x0; x < x1; x++, p += dp) {
             if (repeat) {
-                pos = q - floorf(q * invPeriod) * period;
-            } else {
-                pos = q + 1.5f * w;
+                if (p >= periodRes) p -= periodRes;
+                else if (p < 0) p += periodRes;
             }
+            const int i = int(p);
+            const StripeStep &st = (p >= 0 && i < steps) ? prof[i] : plain;
             uint16_t bgc = bgRow[x];
-            // Distance from the stripe group (for its shadow on the carbon).
-            float out;
-            if (repeat) {
-                out = pos < 3 * w ? -1 : fminf(pos - 3 * w, period - pos);
-            } else {
-                out = pos < 0 ? -pos : (pos >= 3 * w ? pos - 3 * w : -1);
+            if (st.bg < 256) bgc = scale565(bgc, st.bg);
+            if (st.cover == 0) {
+                row[x] = bgc;
+                continue;
             }
-            if (out >= 0) {
-                if (out < shadowW) {
-                    float s = 1 - out / shadowW;
-                    bgc = scale565(bgc, int(256 * (1 - 0.6f * s * s)));
-                }
-                if (out > 0.5f) {
-                    row[x] = bgc;
-                    continue;
-                }
-            }
-            int b = int(floorf(pos * invW));
-            float frac = pos - b * w;
-            int bi = repeat ? ((b % 6) + 6) % 6 : b;
-            uint16_t c;
-            if (bi >= 0 && bi < 3) {
-                int k = int(frac * 16 / w);
-                k = k < 0 ? 0 : (k > 15 ? 15 : k);
-                c = scale565(shades[bi][k], vig[x] + 1);
-            } else {
-                c = bgc;
-            }
-            // Anti-alias the outer edges of the stripe group.
-            if (out >= 0) c = blend565(bgc, c, int((0.5f - out) * 256));
+            // The same edge darkening as the carbon (vignette_), worked out
+            // here rather than read from memory.
+            const float fx = x + 0.5f - CX, r2 = fx * fx + fy2;
+            const float v = 1.0f - vigK * r2 * r2;
+            const int k = x & 3;
+            const float rf = st.r * v + dr[k], gf = st.g * v + dg[k], bf = st.b * v + dr[k];
+            const int r8 = rf <= 0 ? 0 : (rf >= 255 ? 255 : int(rf));
+            const int g8 = gf <= 0 ? 0 : (gf >= 255 ? 255 : int(gf));
+            const int b8 = bf <= 0 ? 0 : (bf >= 255 ? 255 : int(bf));
+            uint16_t c = uint16_t(((r8 & 0xF8) << 8) | ((g8 & 0xFC) << 3) | (b8 >> 3));
+            if (st.cover < 256) c = blend565(bgc, c, st.cover);
             row[x] = c;
         }
     }
@@ -1128,7 +1193,10 @@ Rect Renderer::render(uint32_t ms, uint16_t *introTarget) {
             } else if (!wasDirty) {
                 return {0, 0, 0, 0};
             }
-            drawStripes(phase_, s_.speed != 0);
+            // Every visible pixel changes, so it can go straight into the
+            // frame buffer about to be shown.
+            drawStripes(phase_, s_.speed != 0, introTarget ? introTarget : frame_);
+            drewIntoTarget_ = introTarget != nullptr;
             return full;
         case MODE_IMAGE:
             if (!wasDirty) return {0, 0, 0, 0};

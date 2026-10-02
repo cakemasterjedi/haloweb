@@ -1136,6 +1136,15 @@ static void handleSet() {
     sendState();
 }
 
+// Writing to the internal flash stops the chip reading the frame buffer for
+// a moment now and then, which shows as torn, shifted blocks on the screen.
+// The backlight goes off while that happens and fades back in afterwards.
+static void darkForFlashWrites() {
+    if (!displayOk || brightNow < 0) return;
+    brightNow = 0;
+    writeBacklight(0);
+}
+
 static File uploadFile;
 static size_t uploadBytes;
 static size_t uploadLimit;
@@ -1146,6 +1155,7 @@ static void handleUpload(size_t limit) {
     if (up.status == UPLOAD_FILE_START) {
         uploadBytes = 0;
         uploadLimit = limit;
+        if (!sdOk) darkForFlashWrites();  // the micro SD card doesn't have this problem
         media().remove(uploadPath());
         uploadFile = media().open(uploadPath(), "w");
     } else if (up.status == UPLOAD_FILE_WRITE) {
@@ -1314,6 +1324,7 @@ static void handleWifi() {
 static void handleOtaUpload() {
     HTTPUpload &up = server.upload();
     if (up.status == UPLOAD_FILE_START) {
+        darkForFlashWrites();
         Update.begin(UPDATE_SIZE_UNKNOWN);
     } else if (up.status == UPLOAD_FILE_WRITE) {
         Update.write(up.buf, up.currentSize);
@@ -1616,9 +1627,11 @@ void loop() {
         }
         const uint32_t frameStart = millis();
         const uint32_t drawStart = micros();
-        // The start-up animation draws straight into the frame buffer that is
-        // shown next (no copy), unless dimming in software or crossfading.
-        uint16_t *target = introFrame && !softDim && !fadeStart && !forceFull ? fbs[backFb] : nullptr;
+        // The start-up animation and the stripes draw straight into the frame
+        // buffer that is shown next (no copy), unless dimming in software or
+        // crossfading.
+        const bool direct = introFrame || shown.mode == MODE_STRIPES;
+        uint16_t *target = direct && !softDim && !fadeStart && !forceFull ? fbs[backFb] : nullptr;
         Rect r = renderer.render(now, target);
         if (introFrame) introDrawUs += micros() - drawStart;
         if (forceFull || fadeStart) {

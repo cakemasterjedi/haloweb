@@ -35,8 +35,8 @@ public:
 
     // Draws the frame for time ms. Returns the part of frame() that changed
     // (empty when nothing did).
-    // introTarget: during the start-up animation, draw straight into this
-    // frame buffer (the one about to be shown) instead of frame(); see
+    // introTarget: the frame buffer about to be shown. The start-up animation
+    // and the stripes draw straight into it instead of frame(); see
     // drewIntoTarget().
     Rect render(uint32_t ms, uint16_t *introTarget = nullptr);
     bool drewIntoTarget() const { return drewIntoTarget_; }
@@ -102,7 +102,7 @@ private:
     void buildRoundelLayer();
     void buildCarbonLayer();
     void drawDisc(float phi);
-    void drawStripes(float offset, bool repeat);
+    void drawStripes(float offset, bool repeat, uint16_t *out);
     void drawText();
     void drawImage();
     // Start-up animation parameters for one frame.
@@ -121,7 +121,7 @@ private:
     uint16_t *layer_ = nullptr;   // the roundel without its quarters
     uint16_t *carbon_ = nullptr;  // carbon fibre behind the stripes; scratch space in text mode
     // The roundel's shape, worked out once: per pixel, how much of each colour
-    // (rim, ring, letters, quarters) and white it takes (see buildRoundelGeometry).
+    // (rim, ring, quarters) and white it takes (see buildRoundelGeometry).
     uint8_t *roundelMix_ = nullptr;
     uint8_t *discMix_ = nullptr;   // the same for the quarters: shade, white
     uint16_t *image_ = nullptr;
@@ -131,8 +131,9 @@ private:
     uint8_t *vignette_ = nullptr; // per-pixel edge darkening (255 = none)
     uint8_t *mask_ = nullptr;     // text coverage
     uint8_t *shadow_ = nullptr;   // text shadow coverage
-    bool geometryValid_ = false;  // roundelMix_ / discMix_ match the label and angle
-    bool roundelValid_ = false;   // layer_ / discA_ / discB_ match the colours
+    bool geometryValid_ = false;  // roundelMix_ / discMix_ worked out
+    bool roundelValid_ = false;   // layer_ matches the colours, lettering and angle
+    bool discValid_ = false;      // discA_ / discB_ match the quarter colours
     bool carbonValid_ = false;
     bool imageValid_ = false;
     bool dirty_ = true;

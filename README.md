@@ -152,6 +152,10 @@ g++ -O2 -std=c++17 -Isrc tools/host_preview.cpp src/renderer.cpp -o preview && .
 - **Micro SD card:** optional. Insert it (FAT32) *before* powering up; the
   emblem then stores pictures in an `/emblem` folder on the card. Without a
   card it uses the internal flash. Pictures on one aren't copied to the other.
+- **Screen goes dark while saving:** writing to the internal flash briefly
+  stops the chip feeding the screen, which would show as torn blocks, so the
+  backlight is off while a picture (or a firmware update) is being saved and
+  fades back in with the new picture. With a micro SD card this isn't needed.
 
 ## Hardware notes
 
