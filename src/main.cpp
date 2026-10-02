@@ -97,10 +97,16 @@ static float brightNow = -1;       // backlight level being shown, %
 static volatile bool ntpSynced = false;
 static float uprightTilt = NAN;    // motion sensor set-up, step 1
 
-// Crossfade between designs.
-static const uint32_t FADE_MS = 450;
+// Crossfade between designs. Its clock starts with the first mixed frame
+// (loading the new design can take a moment) and moves on by at most
+// FADE_STEP_MS per frame, so a slow frame never skips most of the fade.
+static const uint32_t FADE_MS = 600;
+static const uint32_t FADE_STEP_MS = 60;
 static uint16_t *fadeFrom = nullptr;  // what was on screen when the fade started
-static uint32_t fadeStart = 0;
+static uint32_t fadeStart = 0;        // non-zero while fading
+static uint32_t fadeLast = 0;         // millis() of the last mixed frame, 0 = none yet
+static uint32_t fadeMs = 0;           // how far the fade has got
+static uint32_t fadeFrames = 0;
 
 // ---------------------------------------------------------------------------
 // Display output
@@ -259,12 +265,13 @@ static Rect unite(Rect a, Rect b) {
 // the frame before the previous one, so it also needs the previous frame's
 // changes; copying only that area keeps PSRAM traffic (and drift) down.
 // During a crossfade the whole frame is mixed with the one it replaces.
-static inline uint16_t mix565(uint16_t a, uint16_t b, int t) {
-    int ar = a >> 11, ag = (a >> 5) & 63, ab = a & 31;
-    int r = ar + ((((b >> 11) - ar) * t) >> 8);
-    int g = ag + (((((b >> 5) & 63) - ag) * t) >> 8);
-    int bl = ab + ((((b & 31) - ab) * t) >> 8);
-    return uint16_t((r << 11) | (g << 5) | bl);
+// a5 = 0..32 (weight of b). All three channels at once: green moves to the
+// top half of a 32-bit word so each channel has room to be multiplied.
+static inline uint16_t mix565(uint16_t a, uint16_t b, uint32_t a5) {
+    const uint32_t wa = (a | (uint32_t(a) << 16)) & 0x07E0F81F;
+    const uint32_t wb = (b | (uint32_t(b) << 16)) & 0x07E0F81F;
+    const uint32_t m = ((wa * (32 - a5) + wb * a5) >> 5) & 0x07E0F81F;
+    return uint16_t(m | (m >> 16));
 }
 
 static void present(Rect r) {
@@ -277,7 +284,14 @@ static void present(Rect r) {
         r = x1 > x0 && y1 > y0 ? Rect{int16_t(x0), int16_t(y0), int16_t(x1 - x0), int16_t(y1 - y0)} : Rect{0, 0, 0, 0};
     }
     const bool fading = fadeStart != 0;
-    const int t = fading ? int(min<uint32_t>(256, (millis() - fadeStart) * 256 / FADE_MS)) : 256;
+    uint32_t t = 32;  // weight of the new frame, /32
+    if (fading) {
+        const uint32_t now = millis();
+        fadeMs += fadeLast ? min<uint32_t>(now - fadeLast, FADE_STEP_MS) : FADE_STEP_MS / 2;
+        fadeLast = now;
+        fadeFrames++;
+        t = min<uint32_t>(32, fadeMs * 32 / FADE_MS);
+    }
     const Rect area = fading ? full : unite(r, lastDirty);
     lastDirty = fading ? full : r;
     const uint16_t *src = renderer.frame();
@@ -290,7 +304,15 @@ static void present(Rect r) {
             memcpy(dst + off, src + off, area.w * 2);
             continue;
         }
-        for (int x = 0; x < area.w; x++) {
+        int x0 = 0, x1 = area.w;
+        if (fading) {
+            // Only the round screen; the corners aren't visible.
+            const float fy = y + 0.5f - Renderer::H / 2.0f, h2 = 240.5f * 240.5f - fy * fy;
+            const float half = h2 > 0 ? sqrtf(h2) : 0;
+            x0 = max(0, int(Renderer::W / 2 - half));
+            x1 = min<int>(area.w, int(ceilf(Renderer::W / 2 + half)));
+        }
+        for (int x = x0; x < x1; x++) {
             uint16_t p = fading ? mix565(fadeFrom[off + x], src[off + x], t) : src[off + x];
             if (scale) p = (lut5[p >> 11] << 11) | (lut6[(p >> 5) & 63] << 5) | lut5[p & 31];
             dst[off + x] = p;
@@ -298,7 +320,8 @@ static void present(Rect r) {
     }
     presentCopyUs += micros() - copyStart;
     swapBuffers(area.y, area.h);
-    if (fading && t >= 256) {
+    if (fading && t >= 32) {
+        logf("Crossfade: %u steps over %u ms\n", unsigned(fadeFrames), unsigned(millis() - fadeStart));
         fadeStart = 0;
         forceFull = true;  // the other buffer still holds a mixed frame
     }
@@ -311,6 +334,7 @@ static void startFade() {
     // The front buffer is what's showing (already dimmed when dimming in software).
     memcpy(fadeFrom, softDim ? renderer.frame() : fbs[backFb ^ 1], IMAGE_BYTES);
     fadeStart = millis() | 1;
+    fadeLast = fadeMs = fadeFrames = 0;
 }
 
 // ---------------------------------------------------------------------------
