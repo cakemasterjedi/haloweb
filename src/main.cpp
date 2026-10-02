@@ -1175,22 +1175,52 @@ static File uploadFile;
 static size_t uploadBytes;
 static size_t uploadLimit;
 
+// Uploads arrive in ~1.4 KB pieces; writing those one by one to the flash
+// is very slow, so they're gathered in PSRAM and written in big blocks.
+static const size_t UPLOAD_BLOCK = 256 * 1024;
+static uint8_t *uploadBuf = nullptr;
+static size_t uploadFill = 0;
+static uint32_t uploadStart = 0, uploadWriteMs = 0;
+
+static void flushUpload() {
+    if (!uploadFill) return;
+    const uint32_t t = millis();
+    if (uploadFile && uploadFile.write(uploadBuf, uploadFill) != uploadFill) uploadFile.close();  // storage full
+    uploadWriteMs += millis() - t;
+    uploadFill = 0;
+}
+
 // Streams an upload to /upload.tmp; stops writing once it passes uploadLimit.
 static void handleUpload(size_t limit) {
     HTTPUpload &up = server.upload();
     if (up.status == UPLOAD_FILE_START) {
         uploadBytes = 0;
         uploadLimit = limit;
+        uploadFill = 0;
+        uploadStart = millis();
+        uploadWriteMs = 0;
+        if (!uploadBuf) uploadBuf = static_cast<uint8_t *>(psramAlloc(UPLOAD_BLOCK));
         if (!sdOk) darkForFlashWrites();  // the micro SD card doesn't have this problem
         media().remove(uploadPath());
         uploadFile = media().open(uploadPath(), "w");
     } else if (up.status == UPLOAD_FILE_WRITE) {
         uploadBytes += up.currentSize;
-        if (uploadFile && uploadBytes <= uploadLimit && uploadFile.write(up.buf, up.currentSize) != up.currentSize) {
-            uploadFile.close();  // storage full
+        if (!uploadFile || uploadBytes > uploadLimit) return;
+        if (!uploadBuf) {
+            if (uploadFile.write(up.buf, up.currentSize) != up.currentSize) uploadFile.close();
+            return;
         }
+        if (uploadFill + up.currentSize > UPLOAD_BLOCK) flushUpload();
+        memcpy(uploadBuf + uploadFill, up.buf, up.currentSize);
+        uploadFill += up.currentSize;
     } else if (up.status == UPLOAD_FILE_END || up.status == UPLOAD_FILE_ABORTED) {
+        flushUpload();
         if (uploadFile) uploadFile.close();
+        const uint32_t ms = max<uint32_t>(1, millis() - uploadStart);
+        logf("Upload %s: %u KB in %u ms (%u KB/s), saving took %u ms\n",
+             up.status == UPLOAD_FILE_END ? "received" : "BROKEN OFF", unsigned(uploadBytes / 1024), unsigned(ms),
+             unsigned(uploadBytes / ms), unsigned(uploadWriteMs));
+        if (up.status == UPLOAD_FILE_ABORTED) media().remove(uploadPath());
     }
 }
 
@@ -1548,6 +1578,11 @@ void setup() {
     logf("[%u ms] Display set up (%u ms)\n", unsigned(millis()), unsigned(millis() - t0));
     t0 = millis();
     setupSD();
+    // A half-finished upload (cut off part way) only takes up space.
+    if (media().exists(uploadPath())) {
+        media().remove(uploadPath());
+        logf("Removed a half-finished upload\n");
+    }
     logf("[%u ms] Storage set up (%u ms)\n", unsigned(millis()), unsigned(millis() - t0));
     logf(rtcBegin() ? "Clock: set\n" : rtcPresent() ? "Clock: not set yet\n" : "Clock chip not found\n");
     if (safeMode) {
