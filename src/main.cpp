@@ -708,7 +708,7 @@ static int cycleList(Item *out) {
     uint8_t slots[IMAGE_SLOTS];
     listSlots(slots);
     int n = 0;
-    for (uint8_t m : {MODE_ROUNDEL, MODE_SPIN, MODE_STRIPES, MODE_TEXT, MODE_M50}) {
+    for (uint8_t m : {MODE_ROUNDEL, MODE_SPIN, MODE_STRIPES, MODE_TEXT, MODE_M50, MODE_M50_SPIN}) {
         if (settings.cycleItems & (1u << m)) out[n++] = {m, settings.imageSlot};
     }
     for (uint8_t i = 0; i < IMAGE_SLOTS; i++) {
@@ -727,15 +727,8 @@ static void updateCycleOn() {
     if (!cycleOn) cycleOverride = false;
 }
 
-// Driving design: shown once the car has been moving for DRIVE_START_MS,
-// until it has been still for DRIVE_STOP_MS (so not at every red light).
-static const uint32_t DRIVE_START_MS = 5000;
-static const uint32_t DRIVE_STOP_MS = 60000;
-static bool driving = false;
-
 static Item wantedItem() {
     if (clipPlaying) return {MODE_IMAGE, clipSlot};
-    if (driving) return {settings.driveMode, settings.driveSlot};
     if (activeRule >= 0) return {settings.rules[activeRule].mode, settings.rules[activeRule].slot};
     if (cycleOn && cycleOverride) return cycleItem;
     return {settings.mode, settings.imageSlot};
@@ -770,7 +763,7 @@ static void nextItem() {
     } else {
         uint8_t slots[IMAGE_SLOTS];
         listSlots(slots);
-        for (uint8_t m : {MODE_ROUNDEL, MODE_SPIN, MODE_STRIPES, MODE_TEXT, MODE_M50}) list[n++] = {m, settings.imageSlot};
+        for (uint8_t m : {MODE_ROUNDEL, MODE_SPIN, MODE_STRIPES, MODE_TEXT, MODE_M50, MODE_M50_SPIN}) list[n++] = {m, settings.imageSlot};
         for (uint8_t i = 0; i < IMAGE_SLOTS; i++) {
             if (slots[i]) list[n++] = {MODE_IMAGE, i};
         }
@@ -793,31 +786,10 @@ static void nextItem() {
     refreshDisplay(true);
 }
 
-static void driveTick(uint32_t now) {
-    static uint32_t movingSince = 0, stillSince = 0;
-    bool want = driving;
-    if (!settings.driveOn || !motionPresent()) {
-        want = false;
-        movingSince = stillSince = 0;
-    } else if (motionMoving()) {
-        stillSince = 0;
-        if (!movingSince) movingSince = now | 1;
-        if (now - movingSince >= DRIVE_START_MS) want = true;
-    } else {
-        movingSince = 0;
-        if (!stillSince) stillSince = now | 1;
-        if (now - stillSince >= DRIVE_STOP_MS) want = false;
-    }
-    if (want == driving) return;
-    driving = want;
-    logf(driving ? "Driving: showing the driving design\n" : "Parked: back to the normal design\n");
-    refreshDisplay(true);
-}
-
 // Auto-cycle: change design when it's time, letting an animation finish its
 // current loop first (up to a minute).
 static void cycleTick(uint32_t now) {
-    if (!cycleOn || clipPlaying || driving || activeRule >= 0 || resting || renderer.introRunning() ||
+    if (!cycleOn || clipPlaying || activeRule >= 0 || resting || renderer.introRunning() ||
         int32_t(now - cycleAt) < 0) {
         return;
     }
@@ -1006,10 +978,6 @@ static void sendState() {
     j += ",\"welcomeSens\":" + String(settings.welcomeSens);
     j += ",\"restMin\":" + String(settings.restMin);
     j += ",\"resting\":" + String(resting ? "true" : "false");
-    j += ",\"driveOn\":" + String(settings.driveOn);
-    j += ",\"driveMode\":" + String(settings.driveMode);
-    j += ",\"driveSlot\":" + String(settings.driveSlot);
-    j += ",\"driving\":" + String(driving ? "true" : "false");
     // Date rules as "fromMonth.fromDay.toMonth.toDay.mode.slot;..."
     j += ",\"rules\":\"";
     for (int i = 0, n = 0; i < DATE_RULES; i++) {
@@ -1151,9 +1119,6 @@ static void handleSet() {
     if (argInt("welcomeOn", 0, 1, v)) settings.welcomeOn = v;
     if (argInt("welcomeSlot", 0, IMAGE_SLOTS, v)) settings.welcomeSlot = v;
     if (argInt("welcomeSens", 1, 3, v)) settings.welcomeSens = v;
-    if (argInt("driveOn", 0, 1, v)) settings.driveOn = v;
-    if (argInt("driveMode", 0, MODE_COUNT - 1, v)) settings.driveMode = v;
-    if (argInt("driveSlot", 0, IMAGE_SLOTS - 1, v)) settings.driveSlot = v;
     motionSetJoltThreshold(joltThreshold(settings.welcomeSens));
     if (argInt("restMin", 0, 240, v)) settings.restMin = v;
     if (server.hasArg("rules")) {
@@ -1666,7 +1631,6 @@ void loop() {
     slowCheck(t, "motion");
     if (displayOk) {
         clipTick(now);
-        driveTick(now);
         cycleTick(now);
         slowCheck(t, "auto-cycle / clip");
         if (!resting) stepAnimation(now);

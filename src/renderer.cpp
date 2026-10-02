@@ -892,78 +892,111 @@ RGBf rimColour(const ColourMix &m, const RGBf &rim) {
 }
 }  // namespace
 
-void Renderer::buildM50() {
-    const float offset = s_.angle * PI_F / 180.0f;
-    const float cs = cosf(offset), sn = sinf(offset);
-    // "BMW" around the top of the small black ring.
-    LabelLayout l;
+// "BMW" around the top of the small black ring.
+void Renderer::m50Label(LabelLayout &l) {
     l.count = 0;
     for (const char *p = "BMW"; *p; p++) l.glyph[l.count++] = labelGlyph(*p);
     l.scale = 40.0f / LABEL_FONT_CAP;
     l.step = 54 * PI_F / 180;
     l.baseline = 117.0f - 40.0f / 2;
-    const RGBf blue = rgbf(CLASSIC_BLUE), white = WHITE;
+}
 
+// The quarters at a pixel: (qx, qy) is the pixel turned by the quarters'
+// angle. Blue top left and bottom right, a little lighter towards the top
+// left, with thin silver lines between.
+static RGBf m50Quarter(float fx, float fy, float qx, float qy) {
+    const float t = clamp01(((fx + fy) * 0.7071f / M50_DISC + 1) / 2);
+    RGBf q = (qx * qy > 0) ? rgbf(CLASSIC_BLUE) : WHITE;
+    q = mix(scale(q, 1.0f - 0.18f * t), WHITE, 0.12f * (1 - t));
+    const float d = fminf(fabsf(qx), fabsf(qy));
+    return mix(q, scale(M50_SILVER, 0.8f), clamp01(0.6f + 0.5f - d));
+}
+
+// One pixel of the M 50 badge, dithered to RGB565. (cs, sn): the rotation setting; (qcs, qsn):
+// the quarters' angle (the same, or spinning).
+uint16_t Renderer::m50Pixel(int x, int y, float cs, float sn, float qcs, float qsn, const LabelLayout &l,
+                            float offset) const {
+    const float fx = x + 0.5f - CX, fy = y + 0.5f - CY;
+    const float r = sqrtf(fx * fx + fy * fy);
+    // Turned with the rotation setting; the light stays put.
+    const float ux = fx * cs + fy * sn, uy = -fx * sn + fy * cs;
+    // Soft light from the upper left over the enamel.
+    const float lit = 0.94f + 0.06f * clamp01(0.5f - (fx + fy) / (2 * R_RING));
+    RGBf c = BLACK;
+    if (r < R_EDGE + 1) {
+        c = mix(c, rimColour(chrome(MIX_RIM, fx, fy, r, R_RING - 1, R_EDGE), M50_SILVER), inside(R_EDGE, r));
+    }
+    if (r < R_RING + 1) {
+        RGBf face = M50_FACE;
+        face = mix(face, M50_LIGHT, between(M50_LIGHT_IN, M50_LIGHT_OUT, r) * clamp01(0.5f - uy));
+        face = mix(face, M50_DARK, between(M50_DARK_IN, M50_DARK_OUT, r) * clamp01(ux + 0.5f));
+        face = mix(face, M50_RED, between(M50_RED_IN, M50_RED_OUT, r) * clamp01(uy + 0.5f));
+        c = mix(c, scale(face, lit), inside(R_RING, r));
+    }
+    if (r < M50_RING_OUT + 1) {
+        c = mix(c, rimColour(chrome(MIX_RIM, fx, fy, r, M50_BLACK_OUT - 1, M50_RING_OUT), M50_SILVER),
+                inside(M50_RING_OUT, r));
+    }
+    if (r < M50_BLACK_OUT + 1) {
+        // Glossy black ring with the lettering.
+        const float top = clamp01(-fy / (r + 1));
+        RGBf ring = {14 + 30 * top * top, 14 + 30 * top * top, 16 + 32 * top * top};
+        float h = 0;
+        const float cov = r > M50_RIM_OUT ? labelCoverage(l, y * W + x, r, offset, h) : 0;
+        // Chrome letters: darker at the foot, bright at the top.
+        if (cov > 0) ring = mix(ring, mix(scale(M50_SILVER, 0.7f), add(M50_SILVER, 30), clamp01(h)), cov);
+        c = mix(c, ring, inside(M50_BLACK_OUT, r));
+    }
+    if (r < M50_RIM_OUT + 1) {
+        c = mix(c, rimColour(chrome(MIX_RIM, fx, fy, r, M50_DISC - 1, M50_RIM_OUT), M50_SILVER),
+                inside(M50_RIM_OUT, r));
+    }
+    if (r < M50_DISC + 1) {
+        const float qx = fx * qcs + fy * qsn, qy = -fx * qsn + fy * qcs;
+        c = mix(c, m50Quarter(fx, fy, qx, qy), inside(M50_DISC, r));
+    }
+    return to565d(c, x, y);
+}
+
+void Renderer::buildM50() {
+    const float offset = s_.angle * PI_F / 180.0f;
+    const float cs = cosf(offset), sn = sinf(offset);
+    LabelLayout l;
+    m50Label(l);
     for (int y = 0; y < H; y++) {
         const float fy = y + 0.5f - CY;
         uint16_t *row = m50_ + y * W;
         for (int x = 0; x < W; x++) {
             const float fx = x + 0.5f - CX;
-            const float r2 = fx * fx + fy * fy;
-            if (r2 > (R_EDGE + 1) * (R_EDGE + 1)) {
-                row[x] = 0;
-                continue;
-            }
-            const float r = sqrtf(r2);
-            // Turned with the rotation setting; the light stays put.
-            const float ux = fx * cs + fy * sn, uy = -fx * sn + fy * cs;
-            // Soft light from the upper left over the enamel.
-            const float lit = 0.94f + 0.06f * clamp01(0.5f - (fx + fy) / (2 * R_RING));
-            RGBf c = BLACK;
-            if (r < R_EDGE + 1) {
-                c = mix(c, rimColour(chrome(MIX_RIM, fx, fy, r, R_RING - 1, R_EDGE), M50_SILVER), inside(R_EDGE, r));
-            }
-            if (r < R_RING + 1) {
-                RGBf face = M50_FACE;
-                face = mix(face, M50_LIGHT, between(M50_LIGHT_IN, M50_LIGHT_OUT, r) * clamp01(0.5f - uy));
-                face = mix(face, M50_DARK, between(M50_DARK_IN, M50_DARK_OUT, r) * clamp01(ux + 0.5f));
-                face = mix(face, M50_RED, between(M50_RED_IN, M50_RED_OUT, r) * clamp01(uy + 0.5f));
-                c = mix(c, scale(face, lit), inside(R_RING, r));
-            }
-            if (r < M50_RING_OUT + 1) {
-                c = mix(c, rimColour(chrome(MIX_RIM, fx, fy, r, M50_BLACK_OUT - 1, M50_RING_OUT), M50_SILVER),
-                        inside(M50_RING_OUT, r));
-            }
-            if (r < M50_BLACK_OUT + 1) {
-                // Glossy black ring with the lettering.
-                const float top = clamp01(-fy / (r + 1));
-                RGBf ring = {14 + 30 * top * top, 14 + 30 * top * top, 16 + 32 * top * top};
-                float h = 0;
-                const float cov = r > M50_RIM_OUT ? labelCoverage(l, y * W + x, r, offset, h) : 0;
-                // Chrome letters: darker at the foot, bright at the top.
-                if (cov > 0) ring = mix(ring, mix(scale(M50_SILVER, 0.7f), add(M50_SILVER, 30), clamp01(h)), cov);
-                c = mix(c, ring, inside(M50_BLACK_OUT, r));
-            }
-            if (r < M50_RIM_OUT + 1) {
-                c = mix(c, rimColour(chrome(MIX_RIM, fx, fy, r, M50_DISC - 1, M50_RIM_OUT), M50_SILVER),
-                        inside(M50_RIM_OUT, r));
-            }
-            if (r < M50_DISC + 1) {
-                // Quarters: blue top left and bottom right, a little lighter
-                // towards the top left, with thin silver lines between.
-                const float t = clamp01(((fx + fy) * 0.7071f / M50_DISC + 1) / 2);
-                const float shade = 1.0f - 0.18f * t;
-                const float gloss = 0.12f * (1 - t);
-                RGBf q = (ux * uy > 0) ? blue : white;
-                q = mix(scale(q, shade), WHITE, gloss);
-                const float d = fminf(fabsf(ux), fabsf(uy));
-                q = mix(q, scale(M50_SILVER, 0.8f), clamp01(0.6f + 0.5f - d));
-                c = mix(c, q, inside(M50_DISC, r));
-            }
-            row[x] = to565d(c, x, y);
+            row[x] = fx * fx + fy * fy > (R_EDGE + 1) * (R_EDGE + 1) ? 0 : m50Pixel(x, y, cs, sn, cs, sn, l, offset);
         }
     }
     m50Valid_ = true;
+}
+
+// M 50 with the quarters turned by phi (spinning): redraws just the disc
+// into frame_.
+void Renderer::drawM50Disc(float phi) {
+    const float offset = s_.angle * PI_F / 180.0f;
+    const float cs = cosf(offset), sn = sinf(offset), qcs = cosf(phi), qsn = sinf(phi);
+    LabelLayout l;
+    m50Label(l);
+    const float rOut = M50_DISC + 1, rIn = M50_DISC - 0.5f;
+    for (int y = int(CY - rOut); y < int(ceilf(CY + rOut)); y++) {
+        const float fy = y + 0.5f - CY;
+        uint16_t *row = frame_ + y * W;
+        for (int x = int(CX - rOut); x < int(ceilf(CX + rOut)); x++) {
+            const float fx = x + 0.5f - CX, r2 = fx * fx + fy * fy;
+            if (r2 >= rOut * rOut) continue;
+            if (r2 < rIn * rIn) {
+                // Fully inside the disc: just the quarters.
+                const float qx = fx * qcs + fy * qsn, qy = -fx * qsn + fy * qcs;
+                row[x] = to565d(m50Quarter(fx, fy, qx, qy), x, y);
+            } else {
+                row[x] = m50Pixel(x, y, cs, sn, qcs, qsn, l, offset);
+            }
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1309,10 +1342,19 @@ Rect Renderer::render(uint32_t ms, uint16_t *introTarget) {
             drawImage();
             return full;
         case MODE_M50:
-            if (!wasDirty) return {0, 0, 0, 0};
-            if (!m50Valid_) buildM50();
-            memcpy(frame_, m50_, size_t(W) * H * 2);
-            return full;
+        case MODE_M50_SPIN: {
+            const bool spin = s_.mode == MODE_M50_SPIN && s_.speed != 0;
+            if (spin) phase_ += dt * (s_.speed / 100.0f) * 2 * PI_F * boost_;
+            if (!wasDirty && !spin) return {0, 0, 0, 0};
+            if (wasDirty) {
+                if (!m50Valid_) buildM50();
+                memcpy(frame_, m50_, size_t(W) * H * 2);
+            }
+            if (!spin) return full;
+            drawM50Disc(offset + phase_);
+            const int16_t d = int16_t(M50_DISC + 2);
+            return wasDirty ? full : Rect{int16_t(CX - d), int16_t(CY - d), int16_t(2 * d), int16_t(2 * d)};
+        }
         case MODE_TEXT:
             if (!wasDirty) return {0, 0, 0, 0};
             drawText();

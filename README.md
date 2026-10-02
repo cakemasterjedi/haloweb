@@ -19,6 +19,7 @@ there's no app to install.
 | **Picture** | Photos, GIFs or videos from your phone (10 slots). Fill / Fit / Fit circle, zoom (pinch), drag, rotate | – |
 | **Text** | Your own text, `\|` starts a new line (e.g. `M\|POWER`) | – |
 | **M 50** | The "50 Years of BMW M" badge (the 1973 BMW Motorsport emblem): a small classic roundel on white enamel with light blue, dark blue and red half circles around it | – |
+| **M 50 Spin** | M 50 with the quarters rotating | spin speed / direction |
 
 All modes also have **brightness** and **rotation** (to level the emblem if it's
 mounted at an angle). Settings are saved on the board.
@@ -77,9 +78,6 @@ The board has a motion sensor (QMI8658), used for:
 - **Double-tap to change design:** tap the badge twice for the next design
   (the next auto-cycle design, or the next mode / picture). Ignored while
   driving. The page shows the last jolt so you can pick the sensitivity.
-- **Driving design:** pick a design (e.g. Spin, or an animation) that takes
-  over after about 5 s of driving; the normal design comes back once the car
-  has been still for a minute, so it doesn't flip at every red light.
 - **Welcome animation:** when the car has been still for 5 minutes, the next
   jolt (a door or the boot shutting) plays a welcome clip: the built-in
   animation or any picture/animation slot. Pick how big a jolt it needs.

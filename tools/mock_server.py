@@ -36,24 +36,22 @@ state = {
     "night": False, "rtc": True, "clock": None, "imu": True, "motionReact": 0, "doubleTap": 0,
     "levelSet": False, "moving": False, "jolt": 0.03, "boost": 0.0,
     "welcomeOn": 0, "welcomeSlot": 0, "welcomeSens": 2, "restMin": 0, "resting": False,
-    "driveOn": 0, "driveMode": 1, "driveSlot": 0, "driving": False,
     "rules": "", "activeRule": -1, "motionOff": 0, "resetReason": "power on", "safeMode": False, "uptime": 75, "build": "mock",
 }
 tz_min = 0
 clock_offset = None  # phone time - server time, once set
-LIMITS = {"mode": (0, 5), "brightness": (5, 100), "speed": (-100, 100), "imageSlot": (0, 9),
+LIMITS = {"mode": (0, 6), "brightness": (5, 100), "speed": (-100, 100), "imageSlot": (0, 9),
           "angle": (-180, 180), "spacing": (0, 30), "startupAnim": (0, 1), "powerMode": (0, 1),
           "autoOffMin": (0, 720), "showHours": (0, 48), "showBrightness": (5, 100), "lowVoltOn": (0, 1),
           "voltSource": (0, 2), "cycleItems": (0, 0x3FFFF), "cycleSec": (0, 3600), "animSpeed": (25, 300),
           "bootSlot": (0, 10), "fades": (0, 1), "autoDim": (0, 1), "nightBrightness": (5, 100),
           "nightFrom": (0, 1439), "nightTo": (0, 1439), "motionReact": (0, 100), "doubleTap": (0, 3),
-          "welcomeOn": (0, 1), "motionOff": (0, 1), "welcomeSlot": (0, 10), "welcomeSens": (1, 3), "restMin": (0, 240),
-          "driveOn": (0, 1), "driveMode": (0, 4), "driveSlot": (0, 9)}
+          "welcomeOn": (0, 1), "motionOff": (0, 1), "welcomeSlot": (0, 10), "welcomeSens": (1, 3), "restMin": (0, 240)}
 
 
 def refresh():
     """Derived fields the firmware computes."""
-    items = sum(1 for m in (0, 1, 2, 4, 5) if state["cycleItems"] >> m & 1)
+    items = sum(1 for m in (0, 1, 2, 4, 5, 6) if state["cycleItems"] >> m & 1)
     items += sum(1 for i, k in enumerate(state["slots"]) if k and state["cycleItems"] >> (8 + i) & 1)
     state["cycling"] = bool(state["cycleSec"]) and items >= 2
     state["showMode"], state["showSlot"] = state["mode"], state["imageSlot"]

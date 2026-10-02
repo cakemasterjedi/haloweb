@@ -11,6 +11,7 @@ enum Mode : uint8_t {
     MODE_IMAGE,        // uploaded picture / animation
     MODE_TEXT,         // custom text in the middle
     MODE_M50,          // "50 Years of BMW M" badge
+    MODE_M50_SPIN,     // ... with the quarters rotating
     MODE_COUNT
 };
 
@@ -112,9 +113,9 @@ struct Settings {
     alignas(4) uint8_t unused9;  // was "display output on core 0" (tore the picture, didn't help)
 
     // Version 10.
-    alignas(4) uint8_t driveOn;  // show a design of its own while driving
-    uint8_t driveMode;           // Mode
-    uint8_t driveSlot;           // picture slot when driveMode is MODE_IMAGE
+    alignas(4) uint8_t driveOn;  // unused (was the driving design, removed)
+    uint8_t driveMode;           // unused
+    uint8_t driveSlot;           // unused
 };
 
 // Size of the stored settings before versions 7 to 10.

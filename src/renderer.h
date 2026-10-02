@@ -102,6 +102,10 @@ private:
     void buildRoundelLayer();
     void buildCarbonLayer();
     void buildM50();
+    void drawM50Disc(float phi);
+    static void m50Label(LabelLayout &l);
+    uint16_t m50Pixel(int x, int y, float cs, float sn, float qcs, float qsn, const LabelLayout &l,
+                      float offset) const;
     void drawDisc(float phi);
     void drawStripes(float offset, bool repeat, uint16_t *out);
     void drawText();
