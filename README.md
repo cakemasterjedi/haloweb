@@ -22,6 +22,11 @@ there's no app to install.
 All modes also have **brightness** and **rotation** (to level the emblem if it's
 mounted at an angle). Settings are saved on the board.
 
+- **Colours:** tapping any colour opens a colour wheel (works the same in
+  Firefox and Chrome) with brightness and saturation sliders, hex and RGB
+  entry, BMW paint colours and your recent colours. The emblem follows as you
+  pick; Cancel puts the old colour back.
+
 - **Auto-cycle** (Emblem tab): rotates through the designs you pick (modes and
   picture slots) every 5 s – 10 min. An animation finishes its loop before the
   next design comes on.

@@ -82,7 +82,6 @@ private:
         float width;
     };
 
-    enum Layer : uint8_t { LAYER_NONE, LAYER_ROUNDEL, LAYER_CARBON };
 
     // Ring lettering: upright bold letters spread evenly around the top.
     struct LabelLayout {
@@ -98,6 +97,8 @@ private:
     void buildTables();
     void layoutLabel();
     float labelCoverage(int idx, float r, float offset, float &height) const;
+    static int roundelMixCount();
+    void buildRoundelGeometry();
     void buildRoundelLayer();
     void buildCarbonLayer();
     void drawDisc(float phi);
@@ -117,7 +118,12 @@ private:
 
     Settings s_;
     uint16_t *frame_ = nullptr;
-    uint16_t *layer_ = nullptr;   // static background: roundel or carbon fibre
+    uint16_t *layer_ = nullptr;   // the roundel without its quarters
+    uint16_t *carbon_ = nullptr;  // carbon fibre behind the stripes; scratch space in text mode
+    // The roundel's shape, worked out once: per pixel, how much of each colour
+    // (rim, ring, letters, quarters) and white it takes (see buildRoundelGeometry).
+    uint8_t *roundelMix_ = nullptr;
+    uint8_t *discMix_ = nullptr;   // the same for the quarters: shade, white
     uint16_t *image_ = nullptr;
     uint16_t *discA_ = nullptr;   // shaded disc in quarter colour A / B
     uint16_t *discB_ = nullptr;
@@ -125,7 +131,9 @@ private:
     uint8_t *vignette_ = nullptr; // per-pixel edge darkening (255 = none)
     uint8_t *mask_ = nullptr;     // text coverage
     uint8_t *shadow_ = nullptr;   // text shadow coverage
-    Layer layer = LAYER_NONE;
+    bool geometryValid_ = false;  // roundelMix_ / discMix_ match the label and angle
+    bool roundelValid_ = false;   // layer_ / discA_ / discB_ match the colours
+    bool carbonValid_ = false;
     bool imageValid_ = false;
     bool dirty_ = true;
     uint32_t lastMs_ = 0;

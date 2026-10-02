@@ -55,10 +55,6 @@ RGBf scale(const RGBf &a, float f) {
     return {a.r * f, a.g * f, a.b * f};
 }
 
-RGBf add(const RGBf &a, float v) {
-    return {a.r + v, a.g + v, a.b + v};
-}
-
 inline float clamp01(float v) {
     return v < 0 ? 0 : (v > 1 ? 1 : v);
 }
@@ -127,7 +123,36 @@ float segDist2(float px, float py, float x0, float y0, float x1, float y1) {
 // Polished metal rim between radii r0 and r1: a rounded (torus) profile lit
 // from the upper left, with a sharp specular highlight and a faint
 // environment reflection so it reads as chrome rather than grey.
-RGBf chrome(const RGBf &base, float fx, float fy, float r, float r0, float r1) {
+// Done on a ColourMix (how much rim colour and white), so it is worked out
+// once for any rim colour.
+struct ColourMix {
+    float rim, ring, label, disc, white;  // white: added to all channels, 0..255
+};
+const ColourMix MIX_BLACK = {0, 0, 0, 0, 0};
+const ColourMix MIX_WHITE = {0, 0, 0, 0, 255};
+const ColourMix MIX_RIM = {1, 0, 0, 0, 0};
+const ColourMix MIX_RING = {0, 1, 0, 0, 0};
+const ColourMix MIX_LABEL = {0, 0, 1, 0, 0};
+const ColourMix MIX_DISC = {0, 0, 0, 1, 0};  // half way between the quarter colours
+
+ColourMix mix(const ColourMix &a, const ColourMix &b, float t) {
+    return {a.rim + (b.rim - a.rim) * t, a.ring + (b.ring - a.ring) * t, a.label + (b.label - a.label) * t,
+            a.disc + (b.disc - a.disc) * t, a.white + (b.white - a.white) * t};
+}
+
+ColourMix scale(const ColourMix &a, float f) {
+    return {a.rim * f, a.ring * f, a.label * f, a.disc * f, a.white * f};
+}
+
+ColourMix add(const ColourMix &a, float v) {
+    return {a.rim, a.ring, a.label, a.disc, a.white + v};
+}
+
+// Stored as bytes: rim * 200 (it can go a little over 1), the others * 255,
+// white as is.
+const float RIM_STEPS = 200.0f;
+
+ColourMix chrome(const ColourMix &base, float fx, float fy, float r, float r0, float r1) {
     float t = clamp01((r - r0) / (r1 - r0));
     float slope = cosf(PI_F * t);  // +1 at the inner edge, -1 at the outer edge
     float nx = fx / r, ny = fy / r;
@@ -138,8 +163,8 @@ RGBf chrome(const RGBf &base, float fx, float fy, float r, float r0, float r1) {
     float d2 = d * d, d4 = d2 * d2, d8 = d4 * d4, d16 = d8 * d8;
     float spec = d16 * d8 * d4;  // d^28: tight specular highlight
     float env = 0.5f + 0.5f * sinf((Ny * inv) * 5.0f + 0.6f);  // sky/ground banding
-    RGBf c = scale(base, 0.16f + 0.78f * d + 0.28f * env);
-    return mix(c, WHITE, spec * 0.9f);
+    ColourMix c = scale(base, 0.16f + 0.78f * d + 0.28f * env);
+    return mix(c, MIX_WHITE, spec * 0.9f);
 }
 
 inline float easeOutCubic(float t) {
@@ -171,7 +196,11 @@ bool Renderer::begin(AllocFn alloc) {
     vignette_ = static_cast<uint8_t *>(alloc(px));
     mask_ = static_cast<uint8_t *>(alloc(px));
     shadow_ = static_cast<uint8_t *>(alloc(px));
-    if (!frame_ || !layer_ || !image_ || !angle_ || !discA_ || !discB_ || !vignette_ || !mask_ || !shadow_) {
+    carbon_ = static_cast<uint16_t *>(alloc(px * 2));
+    roundelMix_ = static_cast<uint8_t *>(alloc(size_t(roundelMixCount()) * 5));
+    discMix_ = static_cast<uint8_t *>(alloc(DISC * DISC * 2));
+    if (!frame_ || !layer_ || !image_ || !angle_ || !discA_ || !discB_ || !vignette_ || !mask_ || !shadow_ ||
+        !carbon_ || !roundelMix_ || !discMix_) {
         return false;
     }
     memset(frame_, 0, px * 2);
@@ -198,13 +227,20 @@ void Renderer::buildTables() {
 }
 
 void Renderer::apply(const Settings &s) {
+    // Only rebuild what the change affects (the roundel takes a while).
+    if (s.angle != s_.angle || s.spacing != s_.spacing || strcmp(s.labelText, s_.labelText) != 0) {
+        geometryValid_ = roundelValid_ = false;
+    }
+    if (s.rim != s_.rim || s.ring != s_.ring || s.label != s_.label || s.quadA != s_.quadA || s.quadB != s_.quadB) {
+        roundelValid_ = false;
+    }
+    if (s.stripeBg != s_.stripeBg) carbonValid_ = false;
     s_ = s;
     dirty_ = true;
-    layer = LAYER_NONE;  // colours may have changed
 }
 
 void Renderer::startIntro(uint32_t) {
-    if (layer != LAYER_ROUNDEL) buildRoundelLayer();  // before the clock starts
+    if (!roundelValid_) buildRoundelLayer();  // before the clock starts
     introT_ = 0;
     introClear_ = 2;
     introRegionsPrev_ = {};
@@ -327,30 +363,47 @@ float Renderer::labelCoverage(int idx, float r, float offset, float &height) con
     return (top + (bot - top) * ty) / 255.0f;
 }
 
-void Renderer::buildRoundelLayer() {
-    layoutLabel();
+// Pixels of the roundel with a stored colour mix: inside the outer edge,
+// outside the plain middle of the disc (which is just the disc colour).
+const float MIX_OUT2 = (R_EDGE + 1) * (R_EDGE + 1);
+const float MIX_IN2 = (R_DISC - 0.5f) * (R_DISC - 0.5f);
 
-    const RGBf rim = rgbf(s_.rim);
-    const RGBf ring = rgbf(s_.ring);
-    const RGBf label = rgbf(s_.label);
-    const RGBf qa = rgbf(s_.quadA), qb = rgbf(s_.quadB);
+int Renderer::roundelMixCount() {
+    int n = 0;
+    for (int y = 0; y < H; y++) {
+        const float fy = y + 0.5f - CY;
+        for (int x = 0; x < W; x++) {
+            const float fx = x + 0.5f - CX;
+            const float r2 = fx * fx + fy * fy;
+            n += r2 <= MIX_OUT2 && r2 >= MIX_IN2;
+        }
+    }
+    return n;
+}
+
+static uint8_t mixByte(float v) {
+    return v <= 0 ? 0 : (v >= 255 ? 255 : uint8_t(v + 0.5f));
+}
+
+// The roundel's shape and shading, which depend on the label and the angle
+// but not on the colours: per pixel, how much of each colour it takes.
+void Renderer::buildRoundelGeometry() {
+    layoutLabel();
     const float offset = s_.angle * PI_F / 180.0f;
     const float labelIn = label_.baseline - 14 * label_.scale;
     const float labelOut = label_.baseline + (LABEL_FONT_CAP + LABEL_FONT_TOP + 1) * label_.scale;
 
+    uint8_t *m = roundelMix_;
     for (int y = 0; y < H; y++) {
         float fy = y + 0.5f - CY;
         for (int x = 0; x < W; x++) {
             float fx = x + 0.5f - CX;
             const float r2 = fx * fx + fy * fy;
-            if (r2 > (R_EDGE + 1) * (R_EDGE + 1)) {
-                layer_[y * W + x] = 0;
-                continue;
-            }
+            if (r2 > MIX_OUT2 || r2 < MIX_IN2) continue;
             float r = sqrtf(r2);
-            RGBf c = BLACK;
+            ColourMix c = MIX_BLACK;
             if (r < R_EDGE + 1) {
-                c = mix(c, chrome(rim, fx, fy, r, R_RING - 1, R_EDGE), inside(R_EDGE, r));
+                c = mix(c, chrome(MIX_RIM, fx, fy, r, R_RING - 1, R_EDGE), inside(R_EDGE, r));
             }
             if (r < R_RING + 1) {
                 // Glossy black ring: a soft reflection over the top half,
@@ -361,32 +414,37 @@ void Renderer::buildRoundelLayer() {
                 float lit = clamp01((fx * LX + fy * LY) / r);
                 float gloss = 0.55f * top * top + 0.45f * lit * lit * lit;
                 gloss *= 1 - fabsf(across - 0.5f) * 1.4f;
-                RGBf ringPx = scale(add(ring, 38.0f * clamp01(gloss)), edgeShade);
+                ColourMix ringPx = scale(add(MIX_RING, 38.0f * clamp01(gloss)), edgeShade);
 
                 if (r > labelIn && r < labelOut) {
                     float h = 0;
                     float cov = labelCoverage(y * W + x, r, offset, h);
                     if (cov > 0) {
                         // White letters, a touch greyer towards the centre.
-                        RGBf l = mix(scale(label, 0.84f), label, clamp01(0.25f + h));
+                        ColourMix l = mix(scale(MIX_LABEL, 0.84f), MIX_LABEL, clamp01(0.25f + h));
                         ringPx = mix(ringPx, l, cov);
                     }
                 }
                 c = mix(c, ringPx, inside(R_RING, r));
             }
             if (r < R_INNER_RIM + 1) {
-                c = mix(c, chrome(rim, fx, fy, r, R_DISC - 1, R_INNER_RIM), inside(R_INNER_RIM, r));
+                c = mix(c, chrome(MIX_RIM, fx, fy, r, R_DISC - 1, R_INNER_RIM), inside(R_INNER_RIM, r));
             }
             if (r < R_DISC + 1) {
-                c = mix(c, mix(qa, qb, 0.5f), inside(R_DISC, r));
+                c = mix(c, MIX_DISC, inside(R_DISC, r));
             }
-            layer_[y * W + x] = to565d(c, x, y);
+            m[0] = mixByte(c.rim * RIM_STEPS);
+            m[1] = mixByte(c.ring * 255);
+            m[2] = mixByte(c.label * 255);
+            m[3] = mixByte(c.disc * 255);
+            m[4] = mixByte(c.white);
+            m += 5;
         }
     }
 
     // Quarters: lighter towards the top left, darker towards the bottom
-    // right, with a soft gloss and a slightly darker edge. One image per
-    // quarter colour.
+    // right, with a soft gloss and a slightly darker edge:
+    // colour * shade * (1 - gloss) + white * gloss.
     const int x0 = int(CX) - DISC / 2, y0 = int(CY) - DISC / 2;
     // The gloss is a Gaussian, exp(-(hx^2 + hy^2) / 2s^2) = gx(x) * gy(y).
     static float glossX[DISC], glossY[DISC];
@@ -403,12 +461,61 @@ void Renderer::buildRoundelLayer() {
             float t = clamp01(((fx + fy) * 0.7071f / R_DISC + 1) / 2);  // 0 top left .. 1 bottom right
             float shade = (1.0f - 0.2f * t) * (1.0f - 0.12f * smoothstep(0.85f, 1.0f, rr));
             float gloss = 0.14f * (1 - t) + glossX[x] * glossY[y] * 0.12f;
-            discA_[y * DISC + x] = to565d(mix(scale(qa, shade), WHITE, gloss), x, y);
-            discB_[y * DISC + x] = to565d(mix(scale(qb, shade), WHITE, gloss), x, y);
+            discMix_[(y * DISC + x) * 2] = mixByte(shade * (1 - gloss) * 255);
+            discMix_[(y * DISC + x) * 2 + 1] = mixByte(gloss * 255);
         }
     }
-    divider_ = to565(scale(rim, 0.8f));
-    layer = LAYER_ROUNDEL;
+    geometryValid_ = true;
+}
+
+// The roundel in the current colours, from the stored mixes.
+void Renderer::buildRoundelLayer() {
+    if (!geometryValid_) buildRoundelGeometry();
+    const RGBf rim = scale(rgbf(s_.rim), 1 / RIM_STEPS);
+    const RGBf ring = scale(rgbf(s_.ring), 1 / 255.0f);
+    const RGBf label = scale(rgbf(s_.label), 1 / 255.0f);
+    const RGBf qa = rgbf(s_.quadA), qb = rgbf(s_.quadB);
+    const RGBf qmid = mix(qa, qb, 0.5f);
+    const RGBf disc = scale(qmid, 1 / 255.0f);
+
+    uint16_t plain[16];  // the middle of the disc, dithered
+    for (int i = 0; i < 16; i++) plain[i] = to565d(qmid, i & 3, i >> 2);
+
+    const uint8_t *m = roundelMix_;
+    for (int y = 0; y < H; y++) {
+        float fy = y + 0.5f - CY;
+        uint16_t *row = layer_ + y * W;
+        for (int x = 0; x < W; x++) {
+            float fx = x + 0.5f - CX;
+            const float r2 = fx * fx + fy * fy;
+            if (r2 > MIX_OUT2) {
+                row[x] = 0;
+                continue;
+            }
+            if (r2 < MIX_IN2) {
+                row[x] = plain[(y & 3) * 4 + (x & 3)];
+                continue;
+            }
+            const float a = m[0], b = m[1], c = m[2], d = m[3], w = m[4];
+            m += 5;
+            const RGBf px = {a * rim.r + b * ring.r + c * label.r + d * disc.r + w,
+                             a * rim.g + b * ring.g + c * label.g + d * disc.g + w,
+                             a * rim.b + b * ring.b + c * label.b + d * disc.b + w};
+            row[x] = to565d(px, x, y);
+        }
+    }
+
+    const RGBf qa255 = scale(qa, 1 / 255.0f), qb255 = scale(qb, 1 / 255.0f);
+    for (int y = 0; y < DISC; y++) {
+        const uint8_t *dm = discMix_ + y * DISC * 2;
+        for (int x = 0; x < DISC; x++) {
+            const float k = dm[x * 2], w = dm[x * 2 + 1];
+            discA_[y * DISC + x] = to565d({qa255.r * k + w, qa255.g * k + w, qa255.b * k + w}, x, y);
+            discB_[y * DISC + x] = to565d({qb255.r * k + w, qb255.g * k + w, qb255.b * k + w}, x, y);
+        }
+    }
+    divider_ = to565(scale(rgbf(s_.rim), 0.8f));
+    roundelValid_ = true;
 }
 
 // Quarters, rotated clockwise by phi, with thin lines between them. Only
@@ -536,7 +643,7 @@ static Renderer::IntroRegions merge(const Renderer::IntroRegions &a, const Rende
 // changes of this and the previous frame are drawn straight into it, which
 // saves copying the frame. Returns the area that changed.
 INTRO_HOT Rect Renderer::drawIntro(float t, bool intoRoundel, uint16_t *target) {
-    if (layer != LAYER_ROUNDEL) buildRoundelLayer();
+    if (!roundelValid_) buildRoundelLayer();
     uint16_t *out = target ? target : frame_;
 
     IntroParams p;
@@ -750,14 +857,14 @@ void Renderer::buildCarbonLayer() {
             float sheen = expf(-sheenD * sheenD / (2 * 110.0f * 110.0f)) * 0.22f;
             RGBf c = mix(scale(bg, f), WHITE, sheen * 0.5f * bulge);
             c = scale(c, vignette_[y * W + x] / 255.0f);
-            layer_[y * W + x] = to565d(c, x, y);
+            carbon_[y * W + x] = to565d(c, x, y);
         }
     }
-    layer = LAYER_CARBON;
+    carbonValid_ = true;
 }
 
 void Renderer::drawStripes(float offset, bool repeat) {
-    if (layer != LAYER_CARBON) buildCarbonLayer();
+    if (!carbonValid_) buildCarbonLayer();
 
     // Each stripe is slightly rounded: lighter in the middle, darker at the edges.
     const RGBf cols[3] = {rgbf(s_.stripe1), rgbf(s_.stripe2), rgbf(s_.stripe3)};
@@ -779,7 +886,7 @@ void Renderer::drawStripes(float offset, bool repeat) {
     for (int y = 0; y < H; y++) {
         float fy = y + 0.5f - CY;
         uint16_t *row = frame_ + y * W;
-        const uint16_t *bgRow = layer_ + y * W;
+        const uint16_t *bgRow = carbon_ + y * W;
         const uint8_t *vig = vignette_ + y * W;
         for (int x = 0; x < W; x++) {
             float fx = x + 0.5f - CX;
@@ -913,10 +1020,10 @@ void Renderer::drawText() {
         }
     }
     if (s_.angle) {
-        // Turned like the other modes; the layer buffer is free in text mode.
-        memcpy(layer_, frame_, size_t(W) * H * 2);
-        layer = LAYER_NONE;
-        rotateInto(frame_, layer_, s_.angle);
+        // Turned like the other modes; the carbon buffer is free in text mode.
+        memcpy(carbon_, frame_, size_t(W) * H * 2);
+        carbonValid_ = false;
+        rotateInto(frame_, carbon_, s_.angle);
     }
 }
 
@@ -1009,7 +1116,7 @@ Rect Renderer::render(uint32_t ms, uint16_t *introTarget) {
             bool moving = s_.mode == MODE_SPIN && s_.speed != 0;
             if (!wasDirty && !moving) return {0, 0, 0, 0};
             if (wasDirty) {
-                if (layer != LAYER_ROUNDEL) buildRoundelLayer();
+                if (!roundelValid_) buildRoundelLayer();
                 memcpy(frame_, layer_, size_t(W) * H * 2);
             }
             drawDisc(offset + (s_.mode == MODE_SPIN ? phase_ : 0));

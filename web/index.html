@@ -182,6 +182,29 @@
   nav.tabs button.on { color: var(--accent2); }
   nav.tabs button:active { transform: none; }
 
+  /* Colour picker */
+  .cpick { position: fixed; inset: 0; z-index: 30; background: rgba(0,0,0,.55); display: flex; align-items: flex-end; justify-content: center; }
+  .cpSheet { width: 100%; max-width: 540px; max-height: 100%; overflow-y: auto; background: var(--card); border: 1px solid var(--line);
+    border-radius: 22px 22px 0 0; padding: 14px 16px calc(16px + env(safe-area-inset-bottom)); }
+  .cpHead { display: flex; align-items: center; gap: 10px; }
+  .cpHead b { flex: 1; font-size: 17px; }
+  .cpHead button { min-height: 40px; padding: 6px 16px; }
+  .cpCompare { display: flex; width: 44px; height: 30px; border-radius: 10px; overflow: hidden; border: 1px solid var(--line); flex: 0 0 44px; }
+  .cpCompare span { flex: 1; }
+  #cpWheel { display: block; width: min(72vw, 270px); aspect-ratio: 1; margin: 14px auto 6px; touch-action: none; border-radius: 50%; }
+  .cpSlider::-webkit-slider-runnable-track { background: var(--g) !important; height: 14px !important; border-radius: 7px !important; }
+  .cpSlider::-webkit-slider-thumb { margin-top: -6px !important; border: 2px solid #fff; }
+  .cpSlider::-moz-range-track { background: var(--g) !important; height: 14px !important; border-radius: 7px !important; }
+  .cpSlider::-moz-range-progress { background: transparent !important; }
+  .cpSlider::-moz-range-thumb { border: 2px solid #fff !important; box-shadow: 0 2px 8px rgba(0,0,0,.5); }
+  .cpNums { display: grid; grid-template-columns: 1.6fr 1fr 1fr 1fr; gap: 8px; margin-top: 6px; }
+  .cpNums label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
+  .cpNums input { width: 100%; min-width: 0; font: inherit; color: var(--text); background: #0d0f12; border: 1px solid var(--line);
+    border-radius: 10px; padding: 9px 8px; text-transform: uppercase; }
+  .cpDots { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 8px; }
+  .cpDots button { width: 36px; height: 36px; min-height: 0; padding: 0; border-radius: 50%; border: 2px solid var(--line); }
+  .cpLabel { font-size: 13px; color: var(--muted); margin-top: 14px; }
+
   .toast { position: fixed; left: 50%; bottom: calc(var(--tabh) + env(safe-area-inset-bottom) + 14px); transform: translateX(-50%);
     background: #262a31; border: 1px solid #353a43; padding: 11px 16px; border-radius: 14px; font-size: 14px;
     opacity: 0; transition: opacity .2s; pointer-events: none; max-width: 90vw; z-index: 20; text-align: center; }
@@ -499,6 +522,31 @@
   <button data-go="settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>Settings</button>
 </div></nav>
 <div class="toast" id="toast"></div>
+<div class="cpick hidden" id="cpick">
+  <div class="cpSheet" role="dialog" aria-modal="true" aria-labelledby="cpTitle">
+    <div class="cpHead">
+      <div class="cpCompare" title="Before / now"><span id="cpOld"></span><span id="cpNow"></span></div>
+      <b id="cpTitle">Colour</b>
+      <button id="cpCancel">Cancel</button>
+      <button class="primary" id="cpDone">Done</button>
+    </div>
+    <canvas id="cpWheel" width="540" height="540"></canvas>
+    <div class="stack"><div class="top2"><span>Brightness</span><output id="cpValOut"></output></div>
+      <input type="range" class="cpSlider" id="cpVal" min="0" max="100"></div>
+    <div class="stack"><div class="top2"><span>Saturation</span><output id="cpSatOut"></output></div>
+      <input type="range" class="cpSlider" id="cpSat" min="0" max="100"></div>
+    <div class="cpNums">
+      <label>Hex<input id="cpHex" maxlength="7" spellcheck="false" autocomplete="off"></label>
+      <label>R<input id="cpR" type="number" min="0" max="255" inputmode="numeric"></label>
+      <label>G<input id="cpG" type="number" min="0" max="255" inputmode="numeric"></label>
+      <label>B<input id="cpB" type="number" min="0" max="255" inputmode="numeric"></label>
+    </div>
+    <div class="cpLabel">Paint colours</div>
+    <div class="cpDots" id="cpPresets"></div>
+    <div class="cpLabel" id="cpRecentLabel">Recent</div>
+    <div class="cpDots" id="cpRecent"></div>
+  </div>
+</div>
 <script>
 // Stroke font, filled in from src/stroke_font.h by tools/embed_web.py.
 const FONT = /*FONT*/{};
@@ -2416,7 +2464,162 @@ function frame(ts) {
   requestAnimationFrame(frame);
 }
 
+// ---------------------------------------------------------------- colour picker
+// A colour wheel of our own: Firefox on Android only offers a small grid of
+// colours for <input type=color>. The picker writes the colour back into the
+// input and fires its input event, so the inputs work as before.
+
+const PAINT_COLOURS = [
+  ['BMW blue', '#1C69D4'], ['Classic blue', '#2C8BD6'], ['M light blue', '#3FA9F5'], ['M dark blue', '#1B3D8F'],
+  ['M red', '#E22718'], ['Toronto red', '#B3122E'], ['Fire orange', '#FF6A13'], ['São Paulo yellow', '#F2C200'],
+  ['Isle of Man green', '#0E5C3A'], ['Tanzanite', '#2B2346'], ['Alpine white', '#F5F5F5'], ['Silver', '#B8BCC2'],
+  ['Gunmetal', '#4A4F57'], ['Gold', '#C9A04B'], ['Black', '#000000'],
+];
+
+function hsvToRgb(h, s, v) {
+  const f = (n) => { const k = (n + h / 60) % 6; return v - v * s * Math.max(0, Math.min(k, 4 - k, 1)); };
+  return [f(5), f(3), f(1)].map((x) => Math.round(x * 255));
+}
+function rgbToHsv(r, g, b) {
+  r /= 255; g /= 255; b /= 255;
+  const v = Math.max(r, g, b), d = v - Math.min(r, g, b);
+  let h = 0;
+  if (d) h = v === r ? ((g - b) / d) % 6 : v === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  return [(h * 60 + 360) % 360, v ? d / v : 0, v];
+}
+const hexOf = (rgb) => '#' + rgb.map((x) => x.toString(16).padStart(2, '0')).join('').toUpperCase();
+const rgbOf = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+
+const cp = {input: null, old: '', h: 0, s: 0, v: 1, wheel: null, wheelV: -1};
+
+function cpRecent() {
+  try { return JSON.parse(localStorage.getItem('emblem-colours')) || []; } catch (e) { return []; }
+}
+
+function cpDots(el, list) {
+  el.textContent = '';
+  for (const [name, hex] of list) {
+    const b = document.createElement('button');
+    b.style.background = hex;
+    b.title = name;
+    b.setAttribute('aria-label', name);
+    b.onclick = () => cpSet(rgbToHsv(...rgbOf(hex)), true);
+    el.appendChild(b);
+  }
+}
+
+// The wheel (hue around, saturation outwards) at the current brightness.
+function cpDrawWheel() {
+  const c = $('cpWheel'), ctx = c.getContext('2d'), n = c.width, r = n / 2;
+  if (cp.wheelV !== cp.v) {
+    const img = ctx.createImageData(n, n), d = img.data;
+    for (let y = 0; y < n; y++) {
+      for (let x = 0; x < n; x++) {
+        const dx = x + 0.5 - r, dy = y + 0.5 - r, dist = Math.hypot(dx, dy) / r;
+        if (dist > 1.004) continue;
+        const [R, G, B] = hsvToRgb((Math.atan2(dx, -dy) * 180 / Math.PI + 360) % 360, Math.min(dist, 1), cp.v);
+        const i = (y * n + x) * 4;
+        d[i] = R; d[i + 1] = G; d[i + 2] = B; d[i + 3] = dist > 0.996 ? 255 * (1.004 - dist) / 0.008 : 255;
+      }
+    }
+    cp.wheel = img;
+    cp.wheelV = cp.v;
+  }
+  ctx.putImageData(cp.wheel, 0, 0);
+  const a = cp.h * Math.PI / 180, mx = r + Math.sin(a) * cp.s * r, my = r - Math.cos(a) * cp.s * r;
+  ctx.lineWidth = 5;
+  ctx.strokeStyle = cp.v > 0.6 ? '#000' : '#fff';
+  ctx.beginPath(); ctx.arc(mx, my, 17, 0, 2 * Math.PI); ctx.stroke();
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = cp.v > 0.6 ? '#fff' : '#000';
+  ctx.beginPath(); ctx.arc(mx, my, 14, 0, 2 * Math.PI); ctx.stroke();
+}
+
+// Shows [h, s, v] in the picker; send: also on the emblem.
+function cpSet([h, s, v], send, skip) {
+  cp.h = h; cp.s = s; cp.v = v;
+  const rgb = hsvToRgb(h, s, v), hex = hexOf(rgb);
+  cpDrawWheel();
+  $('cpVal').value = Math.round(v * 100);
+  $('cpSat').value = Math.round(s * 100);
+  $('cpValOut').textContent = Math.round(v * 100) + '%';
+  $('cpSatOut').textContent = Math.round(s * 100) + '%';
+  $('cpVal').style.setProperty('--g', `linear-gradient(90deg, #000, ${hexOf(hsvToRgb(h, s, 1))})`);
+  $('cpSat').style.setProperty('--g', `linear-gradient(90deg, ${hexOf(hsvToRgb(h, 0, v))}, ${hexOf(hsvToRgb(h, 1, v))})`);
+  if (skip !== 'hex') $('cpHex').value = hex;
+  if (skip !== 'rgb') ['cpR', 'cpG', 'cpB'].forEach((id, i) => $(id).value = rgb[i]);
+  $('cpNow').style.background = hex;
+  if (send && cp.input.value.toUpperCase() !== hex) {
+    cp.input.value = hex.toLowerCase();
+    cp.input.dispatchEvent(new Event('input', {bubbles: true}));
+  }
+}
+
+function openPicker(input) {
+  cp.input = input;
+  cp.old = input.value.toUpperCase();
+  $('cpTitle').textContent = (input.closest('.row') || input.closest('.swatch')).textContent.trim() || 'Colour';
+  $('cpOld').style.background = cp.old;
+  cpDots($('cpPresets'), PAINT_COLOURS);
+  const recent = cpRecent();
+  cpDots($('cpRecent'), recent.map((h) => [h, h]));
+  $('cpRecent').classList.toggle('hidden', !recent.length);
+  $('cpRecentLabel').classList.toggle('hidden', !recent.length);
+  cpSet(rgbToHsv(...rgbOf(cp.old)), false);
+  $('cpick').classList.remove('hidden');
+}
+
+function closePicker(keep) {
+  if (!cp.input) return;
+  if (!keep && cp.input.value.toUpperCase() !== cp.old) {
+    cp.input.value = cp.old.toLowerCase();
+    cp.input.dispatchEvent(new Event('input', {bubbles: true}));
+  }
+  if (keep) {
+    const hex = cp.input.value.toUpperCase();
+    const list = [hex, ...cpRecent().filter((h) => h !== hex)].slice(0, 10);
+    try { localStorage.setItem('emblem-colours', JSON.stringify(list)); } catch (e) {}
+  }
+  cp.input = null;
+  $('cpick').classList.add('hidden');
+}
+
+function setupPicker() {
+  document.querySelectorAll('input[type=color]').forEach((el) => {
+    el.addEventListener('click', (e) => { e.preventDefault(); openPicker(el); });
+    el.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openPicker(el); } });
+  });
+  const wheel = $('cpWheel');
+  const pick = (e) => {
+    const b = wheel.getBoundingClientRect();
+    const dx = (e.clientX - b.left) / b.width * 2 - 1, dy = (e.clientY - b.top) / b.height * 2 - 1;
+    // Picking from the wheel at zero brightness would show nothing: brighten.
+    cpSet([(Math.atan2(dx, -dy) * 180 / Math.PI + 360) % 360, Math.min(1, Math.hypot(dx, dy)), Math.max(cp.v, 0.15)], true);
+  };
+  wheel.addEventListener('pointerdown', (e) => { wheel.setPointerCapture(e.pointerId); pick(e); });
+  wheel.addEventListener('pointermove', (e) => { if (wheel.hasPointerCapture(e.pointerId)) pick(e); });
+  $('cpVal').addEventListener('input', (e) => cpSet([cp.h, cp.s, e.target.value / 100], true));
+  $('cpSat').addEventListener('input', (e) => cpSet([cp.h, e.target.value / 100, cp.v], true));
+  $('cpHex').addEventListener('input', (e) => {
+    let v = e.target.value.trim();
+    if (!v.startsWith('#')) v = '#' + v;
+    if (/^#[0-9a-fA-F]{3}$/.test(v)) v = '#' + [...v.slice(1)].map((c) => c + c).join('');
+    if (/^#[0-9a-fA-F]{6}$/.test(v)) cpSet(rgbToHsv(...rgbOf(v)), true, 'hex');
+  });
+  for (const id of ['cpR', 'cpG', 'cpB']) {
+    $(id).addEventListener('input', () => {
+      const rgb = ['cpR', 'cpG', 'cpB'].map((k) => Math.max(0, Math.min(255, Math.round(+$(k).value || 0))));
+      cpSet(rgbToHsv(...rgb), true, 'rgb');
+    });
+  }
+  $('cpDone').onclick = () => closePicker(true);
+  $('cpCancel').onclick = () => closePicker(false);
+  $('cpick').addEventListener('click', (e) => { if (e.target === $('cpick')) closePicker(true); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && cp.input) closePicker(false); });
+}
+
 buildControls();
+setupPicker();
 setupRules();
 setupPictures();
 setupPower();
