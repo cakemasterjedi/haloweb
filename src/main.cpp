@@ -1281,6 +1281,86 @@ static void handleAnimDone() {
     storeUpload(slot, animPath(slot));
 }
 
+// Small picture of a slot for the Android Auto app: the first frame of an
+// animation (already a JPEG), or a 120x120 BMP of a picture.
+static void handleThumb() {
+    const long slot = server.arg("slot").toInt();
+    if (slot < 0 || slot >= IMAGE_SLOTS) {
+        server.send(400, "text/plain", "slot?");
+        return;
+    }
+    File f = media().open(animPath(slot), "r");
+    if (f) {
+        uint8_t head[16];
+        if (f.read(head, 16) == 16 && memcmp(head, "EMJ1", 4) == 0) {
+            const uint32_t len = head[12] | (head[13] << 8) | (head[14] << 16) | (uint32_t(head[15]) << 24);
+            uint8_t *jpg = len && len < 400000 ? static_cast<uint8_t *>(psramAlloc(len)) : nullptr;
+            if (jpg && f.read(jpg, len) == len) {
+                server.setContentLength(len);
+                server.send(200, "image/jpeg", "");
+                server.sendContent(reinterpret_cast<const char *>(jpg), len);
+                free(jpg);
+                f.close();
+                return;
+            }
+            free(jpg);
+        }
+        f.close();
+    }
+    f = media().open(imagePath(slot), "r");
+    if (!f) {
+        server.send(404, "text/plain", "empty slot");
+        return;
+    }
+    // 4x4 pixel averages, bottom-up rows as BMP wants.
+    const int T = 120, K = Renderer::W / T;
+    const size_t rowBytes = T * 3, size = 54 + rowBytes * T;
+    uint8_t *bmp = static_cast<uint8_t *>(psramAlloc(size));
+    uint16_t *rows = static_cast<uint16_t *>(psramAlloc(Renderer::W * K * 2));
+    if (!bmp || !rows) {
+        free(bmp);
+        free(rows);
+        f.close();
+        server.send(500, "text/plain", "out of memory");
+        return;
+    }
+    memset(bmp, 0, 54);
+    auto put32 = [&](int at, uint32_t v) { for (int i = 0; i < 4; i++) bmp[at + i] = uint8_t(v >> (8 * i)); };
+    bmp[0] = 'B';
+    bmp[1] = 'M';
+    put32(2, size);
+    put32(10, 54);
+    put32(14, 40);
+    put32(18, T);
+    put32(22, T);
+    bmp[26] = 1;
+    bmp[28] = 24;
+    for (int ty = 0; ty < T; ty++) {
+        if (f.read(reinterpret_cast<uint8_t *>(rows), Renderer::W * K * 2) != size_t(Renderer::W * K * 2)) break;
+        uint8_t *out = bmp + 54 + (T - 1 - ty) * rowBytes;
+        for (int tx = 0; tx < T; tx++) {
+            uint32_t r = 0, g = 0, b = 0;
+            for (int dy = 0; dy < K; dy++) {
+                for (int dx = 0; dx < K; dx++) {
+                    const uint16_t p = rows[dy * Renderer::W + tx * K + dx];
+                    r += (p >> 11) << 3;
+                    g += ((p >> 5) & 63) << 2;
+                    b += (p & 31) << 3;
+                }
+            }
+            out[tx * 3] = b / (K * K);
+            out[tx * 3 + 1] = g / (K * K);
+            out[tx * 3 + 2] = r / (K * K);
+        }
+    }
+    f.close();
+    free(rows);
+    server.setContentLength(size);
+    server.send(200, "image/bmp", "");
+    server.sendContent(reinterpret_cast<const char *>(bmp), size);
+    free(bmp);
+}
+
 static void handleImageDelete() {
     long slot = server.arg("slot").toInt();
     if (slot >= 0 && slot < IMAGE_SLOTS) {
@@ -1426,6 +1506,13 @@ static void setupWeb() {
     server.on("/hevc.wasm", HTTP_GET, [] { sendGz("application/wasm", HEVC_WASM_GZ, HEVC_WASM_GZ_LEN); });
     server.on("/api/state", HTTP_GET, sendState);
     server.on("/api/set", HTTP_POST, handleSet);
+    server.on("/api/thumb", HTTP_GET, handleThumb);
+    server.on("/api/next", HTTP_POST, [] {
+        wake(false);
+        lastActivity = millis();
+        nextItem();
+        sendState();
+    });
     server.on("/api/image", HTTP_POST, handleImageDone, [] { handleUpload(IMAGE_BYTES); });
     server.on("/api/anim", HTTP_POST, handleAnimDone, [] { handleUpload(animMaxBytes()); });
     server.on("/api/image/delete", HTTP_POST, handleImageDelete);

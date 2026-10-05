@@ -110,6 +110,31 @@ Under **Settings** you can:
 - install firmware updates over Wi-Fi, so you don't need to reach the USB port
   once it's in the car.
 
+## Android Auto (the car's screen)
+
+`android/` is a small Android app that puts the emblem on the car's screen
+through Android Auto: a grid of the designs (with thumbnails of your own
+pictures and animations); tap one to show it. **Next** steps to the next
+design, the sun button sets the brightness. It talks to the emblem over Wi-Fi
+with the same requests as the web page, and finds it by itself on the phone's
+hotspot (or at 192.168.4.1 when the phone is on the emblem's Wi-Fi).
+
+It's an Android Auto "IoT" app installed outside the Play Store, so Android
+Auto has to be told to show it, once:
+
+1. Install `emblem-auto.apk` on the phone (allow installing from your browser
+   or file manager when asked) and open it once; it should say "Emblem found".
+2. Android Auto's settings (Settings → Connected devices → Connection
+   preferences → Android Auto): scroll down, tap **Version** 10 times and
+   allow developer settings.
+3. ⋮ menu → **Developer settings** → turn on **Unknown sources**.
+4. **Customise launcher**: make sure Emblem is ticked.
+
+Build it with `cd android && ./gradlew assembleRelease` (needs the Android SDK;
+the APK lands in `app/build/outputs/apk/release/`). It's signed with
+`android/emblem.keystore`, so newer builds install over older ones. The design
+icons in `res/drawable-nodpi` are drawn by the emblem's own renderer.
+
 ## Building & flashing
 
 This is a [PlatformIO](https://platformio.org/) project. It works from VS Code

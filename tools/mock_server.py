@@ -119,6 +119,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.reply(200, f.read(), "application/wasm" if path.endswith("wasm") else "text/javascript")
         elif path == "/api/state":
             self.state()
+        elif path == "/api/thumb":
+            self.reply(404, "No thumbnails in the mock", "text/plain")
         else:
             self.send_response(302)
             self.send_header("Location", "/")
@@ -166,6 +168,14 @@ class Handler(BaseHTTPRequestHandler):
                 self.reply(400, "Not a valid animation", "text/plain")
                 return
             self.store(slot, 2, data)
+        elif url.path == "/api/next":
+            # Next built-in design or filled slot, like the firmware without auto-cycle.
+            items = [(m, state["imageSlot"]) for m in (0, 1, 2, 4, 5, 6)]
+            items += [(3, i) for i, k in enumerate(state["slots"]) if k]
+            cur = (state["mode"], state["imageSlot"])
+            at = next((i for i, it in enumerate(items) if it[0] == cur[0] and (it[0] != 3 or it[1] == cur[1])), -1)
+            state["mode"], state["imageSlot"] = items[(at + 1) % len(items)]
+            self.state()
         elif url.path == "/api/image/delete":
             state["slots"][int(query.get("slot", 0))] = 0
             self.state()
