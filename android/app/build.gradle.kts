@@ -11,8 +11,8 @@ android {
         applicationId = "com.emblem.auto"
         minSdk = 26
         targetSdk = 35
-        versionCode = 4
-        versionName = "1.3"
+        versionCode = 5
+        versionName = "2.0"
     }
 
     // Signed with the key kept next to this file, so a newer build installs
@@ -45,5 +45,5 @@ android {
 }
 
 dependencies {
-    implementation("androidx.car.app:app:1.7.0")
+    implementation("androidx.media:media:1.7.0")
 }

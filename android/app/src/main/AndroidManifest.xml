@@ -11,12 +11,13 @@
         android:theme="@android:style/Theme.DeviceDefault.NoActionBar"
         android:usesCleartextTraffic="true">
 
+        <!-- Android Auto: shown as a media app. Android Auto lists sideloaded
+             media apps (with "Unknown sources" on) but not sideloaded
+             template apps, so the designs are offered as a media library:
+             "playing" one shows it on the emblem. -->
         <meta-data
             android:name="com.google.android.gms.car.application"
             android:resource="@xml/automotive_app_desc" />
-        <meta-data
-            android:name="androidx.car.app.minCarApiLevel"
-            android:value="1" />
 
         <activity
             android:name=".MainActivity"
@@ -27,17 +28,18 @@
             </intent-filter>
         </activity>
 
-        <!-- Android Auto: declared as a points-of-interest app. An emblem is
-             really an "Internet of Things" device, but Android Auto (17.x)
-             only lists IoT apps from approved partners; sideloaded POI apps
-             are listed once "Unknown sources" is on. -->
         <service
-            android:name=".EmblemCarAppService"
+            android:name=".EmblemMediaService"
             android:exported="true">
             <intent-filter>
-                <action android:name="androidx.car.app.CarAppService" />
-                <category android:name="androidx.car.app.category.POI" />
+                <action android:name="android.media.browse.MediaBrowserService" />
             </intent-filter>
         </service>
+
+        <!-- Tile pictures for the car screen (design icons and thumbnails). -->
+        <provider
+            android:name=".ArtProvider"
+            android:authorities="com.emblem.auto.art"
+            android:exported="true" />
     </application>
 </manifest>
