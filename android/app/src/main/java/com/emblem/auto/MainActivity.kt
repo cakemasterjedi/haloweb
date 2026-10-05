@@ -74,7 +74,15 @@ class MainActivity : Activity() {
             13f,
         ).setTextColor(Color.GRAY)
 
-        setContentView(ScrollView(this).apply { addView(col) })
+        // Android 15 draws apps edge to edge: keep clear of the status and
+        // navigation bars.
+        val scroll = ScrollView(this).apply { addView(col) }
+        scroll.setOnApplyWindowInsetsListener { v, insets ->
+            @Suppress("DEPRECATION")
+            v.setPadding(0, insets.systemWindowInsetTop, 0, insets.systemWindowInsetBottom)
+            insets
+        }
+        setContentView(scroll)
         find()
     }
 
@@ -87,7 +95,9 @@ class MainActivity : Activity() {
                     status.text = "✓ Emblem found at $host"
                     addressField.setText(host)
                 } else {
-                    status.text = "Emblem not found. Turn on your hotspot and the emblem, wait a minute for it to join, then tap Find."
+                    status.text = "Emblem not found. Turn on your hotspot and the emblem, wait a minute for it to join, " +
+                        "then tap Find. If your browser can open the emblem's page, type that address below.\n" +
+                        "Searched: ${Emblem.lastSearch}"
                 }
             }
         }

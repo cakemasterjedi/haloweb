@@ -11,8 +11,8 @@ android {
         applicationId = "com.emblem.auto"
         minSdk = 26
         targetSdk = 35
-        versionCode = 2
-        versionName = "1.1"
+        versionCode = 3
+        versionName = "1.2"
     }
 
     // Signed with the key kept next to this file, so a newer build installs

@@ -4,6 +4,9 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
+import android.net.nsd.NsdManager
+import android.net.nsd.NsdServiceInfo
 import java.io.ByteArrayOutputStream
 import java.net.HttpURLConnection
 import java.net.Inet4Address
@@ -11,6 +14,7 @@ import java.net.InetAddress
 import java.net.NetworkInterface
 import java.net.URL
 import java.net.URLEncoder
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
@@ -79,8 +83,10 @@ object Emblem {
 
     // ---- requests
 
-    /** Opens host+path over the network that reaches host (Wi-Fi without
-     *  internet isn't the default network, so ask for it explicitly). */
+    /** Opens host+path. When the phone is on the emblem's own Wi-Fi (no
+     *  internet), that Wi-Fi isn't the default network, so it's asked for
+     *  explicitly. Only Wi-Fi counts: mobile data can use 10.x addresses too.
+     *  On the phone's hotspot the normal route reaches the emblem. */
     private fun open(host: String, path: String, connectMs: Int, readMs: Int): HttpURLConnection {
         val url = URL("http://$host$path")
         var conn: HttpURLConnection? = null
@@ -89,8 +95,10 @@ object Emblem {
             val cm = app.getSystemService(ConnectivityManager::class.java)
             @Suppress("DEPRECATION")
             for (n in cm.allNetworks) {
+                val caps = cm.getNetworkCapabilities(n) ?: continue
+                if (!caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) continue
                 val lp = cm.getLinkProperties(n) ?: continue
-                if (lp.linkAddresses.any { la -> sameSubnet(la.address, target, la.prefixLength) }) {
+                if (lp.linkAddresses.any { la -> la.prefixLength >= 16 && sameSubnet(la.address, target, la.prefixLength) }) {
                     conn = n.openConnection(url) as HttpURLConnection
                     break
                 }
@@ -188,16 +196,68 @@ object Emblem {
         false
     }
 
+    /** What the last find() searched, for the phone screen. */
+    @Volatile var lastSearch = ""
+        private set
+
+    /** The emblem announces itself as "emblem" (mDNS); ask for it by name. */
+    private fun findByName(): String? {
+        val nsd = app.getSystemService(NsdManager::class.java) ?: return null
+        val found = AtomicReference<String?>(null)
+        val done = CountDownLatch(1)
+        val listener = object : NsdManager.DiscoveryListener {
+            override fun onServiceFound(info: NsdServiceInfo) {
+                if (!info.serviceName.lowercase().startsWith("emblem")) return
+                @Suppress("DEPRECATION")
+                nsd.resolveService(info, object : NsdManager.ResolveListener {
+                    override fun onServiceResolved(si: NsdServiceInfo) {
+                        @Suppress("DEPRECATION")
+                        val a = si.host as? Inet4Address ?: return
+                        if (found.compareAndSet(null, a.hostAddress)) done.countDown()
+                    }
+
+                    override fun onResolveFailed(si: NsdServiceInfo, errorCode: Int) {}
+                })
+            }
+
+            override fun onDiscoveryStarted(serviceType: String) {}
+            override fun onDiscoveryStopped(serviceType: String) {}
+            override fun onServiceLost(info: NsdServiceInfo) {}
+            override fun onStartDiscoveryFailed(serviceType: String, errorCode: Int) = done.countDown()
+            override fun onStopDiscoveryFailed(serviceType: String, errorCode: Int) {}
+        }
+        try {
+            nsd.discoverServices("_http._tcp", NsdManager.PROTOCOL_DNS_SD, listener)
+            done.await(4, TimeUnit.SECONDS)
+            nsd.stopServiceDiscovery(listener)
+        } catch (_: Exception) {
+        }
+        return found.get()
+    }
+
     /**
      * Finds the emblem: the last address that worked, its own network
-     * (192.168.4.1), then every address on the phone's local networks
-     * (the hotspot). Returns the address, or null.
+     * (192.168.4.1), by name, then every address on the phone's local
+     * networks (the hotspot). Returns the address, or null.
      */
     fun find(): String? {
-        address?.let { if (probe(it)) return it }
+        val searched = mutableListOf<String>()
+        lastSearch = ""
+        address?.let {
+            searched += it
+            if (probe(it)) return it
+        }
+        searched += "192.168.4.1"
         if (probe("192.168.4.1")) {
             remember("192.168.4.1")
             return address
+        }
+        searched += "emblem.local"
+        findByName()?.let { host ->
+            if (probe(host)) {
+                remember(host)
+                return host
+            }
         }
         val candidates = LinkedHashSet<String>()
         try {
@@ -207,6 +267,7 @@ object Emblem {
                     val a = ia.address as? Inet4Address ?: continue
                     if (!a.isSiteLocalAddress) continue
                     val own = a.address
+                    searched += "${own[0].toInt() and 0xFF}.${own[1].toInt() and 0xFF}.${own[2].toInt() and 0xFF}.* (${ni.name})"
                     // The /24 around the phone's address (a hotspot is usually exactly that).
                     for (i in 1..254) {
                         if (i == (own[3].toInt() and 0xFF)) continue
@@ -216,6 +277,7 @@ object Emblem {
             }
         } catch (_: Exception) {
         }
+        lastSearch = searched.joinToString(", ")
         if (candidates.isEmpty()) return null
         val found = AtomicReference<String?>(null)
         val pool = Executors.newFixedThreadPool(48)
