@@ -38,7 +38,7 @@ struct DateRule {
     uint8_t mode;  // Mode
     uint8_t slot;  // picture slot for MODE_IMAGE
 };
-static const uint32_t SETTINGS_VERSION = 10;
+static const uint32_t SETTINGS_VERSION = 11;
 static const uint32_t CLASSIC_BLUE = 0x2C8BD6;  // default quarter colour
 
 struct Settings {
@@ -116,13 +116,20 @@ struct Settings {
     alignas(4) uint8_t driveOn;  // unused (was the driving design, removed)
     uint8_t driveMode;           // unused
     uint8_t driveSlot;           // unused
+
+    // Version 11.
+    // First-time set-up done: a new emblem starts with its own Wi-Fi name and
+    // a random password (shown on its screen) and asks for a new password
+    // before anything else can be changed.
+    alignas(4) uint8_t setupDone;
 };
 
-// Size of the stored settings before versions 7 to 10.
+// Size of the stored settings before versions 7 to 11.
 static const size_t SETTINGS_V6_SIZE = offsetof(Settings, cycleItems);
 static const size_t SETTINGS_V7_SIZE = offsetof(Settings, welcomeOn);
 static const size_t SETTINGS_V8_SIZE = offsetof(Settings, unused9);
 static const size_t SETTINGS_V9_SIZE = offsetof(Settings, driveOn);
+static const size_t SETTINGS_V10_SIZE = offsetof(Settings, setupDone);
 
 inline void settingsDefaults(Settings &s) {
     memset(&s, 0, sizeof(s));

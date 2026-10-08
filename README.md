@@ -92,13 +92,19 @@ The board has a motion sensor (QMI8658), used for:
 
 ## Using it
 
-1. Power the board. It starts a Wi-Fi network **`BMW-Emblem`**, password **`emblem123`**.
+1. Power the board. The first time, it makes its own Wi-Fi network,
+   **`EMBLEM-xxxx`**, with a random temporary password, and shows both on its
+   screen.
 2. Join it from your phone. Most phones then open the control page on their
    own as a "sign in to network" page. If yours doesn't, browse to
    **http://192.168.4.1** (http://emblem.local also works on iPhones and computers, not Android).
 3. On Android, when it warns that the network has no internet, choose
    **Stay connected**.
-4. Add the page to your home screen so it works like an app.
+4. The first time, the page asks you to choose your own Wi-Fi password (and,
+   if you like, a new name) before anything else; the emblem then restarts its
+   Wi-Fi and you reconnect with the new password. Until then the emblem shows
+   the temporary details and nothing else can be changed.
+5. Add the page to your home screen so it works like an app.
 
 Under **Settings** you can:
 

@@ -182,6 +182,19 @@
   nav.tabs button.on { color: var(--accent2); }
   nav.tabs button:active { transform: none; }
 
+  /* First-time set-up */
+  .setup { position: fixed; inset: 0; z-index: 40; background: var(--bg); overflow-y: auto;
+    padding: calc(env(safe-area-inset-top) + 24px) 16px calc(env(safe-area-inset-bottom) + 24px); }
+  .setup .card { max-width: 480px; margin: 0 auto; }
+  .setup h1 { font-size: 24px; margin: 4px 0 6px; }
+  .setup p { color: var(--muted); font-size: 14.5px; line-height: 1.5; margin: 6px 0 14px; }
+  .setup .field { display: flex; flex-direction: column; gap: 6px; margin: 12px 0; font-size: 14px; color: var(--muted); }
+  .setup input[type=text], .setup input[type=password] { font: inherit; font-size: 16px; color: var(--text); background: #0d0f12;
+    border: 1px solid var(--line); border-radius: 12px; padding: 12px; width: 100%; }
+  .setup .show { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--muted); margin: 4px 0 14px; }
+  .setup .err { color: #ffb3ad; font-size: 14px; min-height: 20px; margin: 4px 0; }
+  .setup .done b { color: var(--text); }
+
   /* Colour picker */
   .cpick { position: fixed; inset: 0; z-index: 30; background: rgba(0,0,0,.55); display: flex; align-items: flex-end; justify-content: center; }
   .cpSheet { width: 100%; max-width: 540px; max-height: 100%; overflow-y: auto; background: var(--card); border: 1px solid var(--line);
@@ -525,6 +538,27 @@
   <button data-go="settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>Settings</button>
 </div></nav>
 <div class="toast" id="toast"></div>
+<div class="setup hidden" id="setup">
+  <div class="card" id="setupForm">
+    <h1>Welcome to your emblem</h1>
+    <p>You're connected with the temporary password shown on the emblem. Choose your own password now so nobody
+      else can change your emblem. You can also rename its Wi-Fi.</p>
+    <label class="field">Wi-Fi name<input type="text" id="setupSsid" maxlength="32" autocomplete="off" spellcheck="false"></label>
+    <label class="field">New password (at least 8 characters)<input type="password" id="setupPass" maxlength="63" autocomplete="new-password"></label>
+    <label class="field">Type it again<input type="password" id="setupPass2" maxlength="63" autocomplete="new-password"></label>
+    <label class="show"><input type="checkbox" id="setupShow"> Show the password</label>
+    <div class="err" id="setupErr"></div>
+    <button class="primary wide" id="setupSave">Save and restart Wi-Fi</button>
+  </div>
+  <div class="card hidden done" id="setupDone">
+    <h1>All set</h1>
+    <p>The emblem is restarting with its new Wi-Fi. In a few seconds:</p>
+    <ol class="steps">
+      <li>Open your phone's Wi-Fi settings and connect to <b id="setupNewSsid"></b> with your new password.</li>
+      <li>Come back here and reload the page (or open <b>http://192.168.4.1</b>).</li>
+    </ol>
+  </div>
+</div>
 <div class="cpick hidden" id="cpick">
   <div class="cpSheet" role="dialog" aria-modal="true" aria-labelledby="cpTitle">
     <div class="cpHead">
@@ -617,10 +651,39 @@ async function api(path, body) {
   return type.includes('json') ? r.json() : r.text();
 }
 
+// First-time set-up: shown over everything until a new password is saved.
+function showSetup() {
+  $('setup').classList.remove('hidden');
+  $('setupSsid').value = st.apSsid || '';
+  $('setupShow').onchange = (e) => { $('setupPass').type = $('setupPass2').type = e.target.checked ? 'text' : 'password'; };
+  $('setupSave').onclick = async () => {
+    const ssid = $('setupSsid').value.trim(), pass = $('setupPass').value;
+    const err = (m) => { $('setupErr').textContent = m; };
+    if (!ssid) return err('Give the Wi-Fi a name.');
+    if (pass.length < 8) return err('The password needs at least 8 characters.');
+    if (pass !== $('setupPass2').value) return err('The two passwords are different.');
+    err('');
+    $('setupSave').disabled = true;
+    try {
+      await api('/api/setup', new URLSearchParams({apSsid: ssid, apPass: pass}));
+      $('setupNewSsid').textContent = ssid;
+      $('setupForm').classList.add('hidden');
+      $('setupDone').classList.remove('hidden');
+    } catch (e) {
+      err(e.message);
+      $('setupSave').disabled = false;
+    }
+  };
+}
+
 async function loadState() {
   try {
     st = await api('/api/state');
     setOnline(true);
+    if (st.setup) {
+      showSetup();
+      return;
+    }
     fillControls();
     syncClock();
   } catch (e) {

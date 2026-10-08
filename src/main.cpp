@@ -15,7 +15,10 @@
 #include <Update.h>
 #include <WebServer.h>
 #include <WiFi.h>
+#include <bootloader_random.h>
 #include <esp_cache.h>
+#include <esp_mac.h>
+#include <esp_random.h>
 #include <esp_sleep.h>
 #include <driver/gpio.h>
 #include <esp_sntp.h>
@@ -503,6 +506,23 @@ static void stepAnimation(uint32_t now) {
     anim.nextAt = now + max<uint32_t>(uint32_t(anim.delay[anim.index] / speed), 20);
 }
 
+// A new emblem's Wi-Fi: "EMBLEM-" plus the end of its MAC address, and a
+// random temporary password (no 0/O or 1/I, so it's easy to read off the
+// screen). Both are replaced in the first-time set-up.
+static void firstTimeWifi() {
+    uint8_t mac[6];
+    esp_read_mac(mac, ESP_MAC_WIFI_SOFTAP);
+    snprintf(settings.apSsid, sizeof(settings.apSsid), "EMBLEM-%02X%02X", mac[4], mac[5]);
+    static const char CHARS[] = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+    // Wi-Fi isn't running yet, so turn on the hardware noise source for
+    // truly random numbers.
+    bootloader_random_enable();
+    for (int i = 0; i < 8; i++) settings.apPass[i] = CHARS[esp_random() % (sizeof(CHARS) - 1)];
+    bootloader_random_disable();
+    settings.apPass[8] = 0;
+    settings.setupDone = 0;
+}
+
 static void loadSettings() {
     settingsDefaults(settings);
     prefs.begin("emblem", false);
@@ -511,11 +531,13 @@ static void loadSettings() {
     Settings stored;
     settingsDefaults(stored);
     const size_t len = prefs.getBytesLength("s");
-    if ((len == sizeof(Settings) || len == SETTINGS_V9_SIZE || len == SETTINGS_V8_SIZE || len == SETTINGS_V7_SIZE ||
-         len == SETTINGS_V6_SIZE) &&
+    bool loaded = false;
+    if ((len == sizeof(Settings) || len == SETTINGS_V10_SIZE || len == SETTINGS_V9_SIZE || len == SETTINGS_V8_SIZE ||
+         len == SETTINGS_V7_SIZE || len == SETTINGS_V6_SIZE) &&
         prefs.getBytes("s", &stored, len) == len) {
         const bool current = len == sizeof(Settings) && stored.version == SETTINGS_VERSION;
-        const bool older = (len == SETTINGS_V9_SIZE && stored.version == 9) ||
+        const bool older = (len == SETTINGS_V10_SIZE && stored.version == 10) ||
+                           (len == SETTINGS_V9_SIZE && stored.version == 9) ||
                            (len == SETTINGS_V8_SIZE && stored.version == 8) ||
                            (len == SETTINGS_V7_SIZE && stored.version == 7) ||
                            (len == SETTINGS_V6_SIZE && (stored.version == 5 || stored.version == 6));
@@ -523,9 +545,18 @@ static void loadSettings() {
             // Version 5's default blue was darker.
             if (stored.version == 5 && stored.quadA == 0x1C69D4) stored.quadA = CLASSIC_BLUE;
             if (stored.version == 5) stored.motionOff = 0;  // was showIp
+            // Emblems set up before version 11 keep their Wi-Fi as it is.
+            if (stored.version < 11) stored.setupDone = 1;
             stored.version = SETTINGS_VERSION;
             settings = stored;
+            loaded = true;
         }
+    }
+    if (!loaded) {
+        // Nothing stored: a new emblem (or one whose settings were wiped).
+        firstTimeWifi();
+        prefs.putBytes("s", &settings, sizeof(settings));
+        logf("First start: Wi-Fi \"%s\", temporary password %s\n", settings.apSsid, settings.apPass);
     }
 }
 
@@ -749,6 +780,14 @@ static void refreshDisplay(bool fade, bool reload = false) {
     Settings s = settings;
     s.mode = it.mode;
     s.imageSlot = it.slot;
+    if (!settings.setupDone) {
+        // Until the first-time set-up is done the screen shows how to connect.
+        s.mode = MODE_TEXT;
+        s.angle = 0;
+        s.textFg = 0xFFFFFF;
+        s.textBg = 0x0B2A55;
+        snprintf(s.text, sizeof(s.text), "WI-FI|%s|PW %s", settings.apSsid, settings.apPass);
+    }
     renderer.apply(s);
     shown = it;
 }
@@ -904,6 +943,7 @@ static void sendState() {
     j += ",\"textFg\":\"" + colorHex(settings.textFg) + "\"";
     j += ",\"text\":" + jsonString(settings.text);
     j += ",\"apSsid\":" + jsonString(settings.apSsid);
+    j += ",\"setup\":" + String(settings.setupDone ? "false" : "true");
     j += ",\"staSsid\":" + jsonString(settings.staSsid);
     j += ",\"staIp\":\"" + (WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString() : String()) + "\"";
     j += ",\"panel\":" + String(settings.panel);
@@ -1024,7 +1064,46 @@ static bool clockOnly() {
     return true;
 }
 
+// Until the first-time set-up is done (a new Wi-Fi password chosen),
+// nothing else can be changed. Sends the refusal; true if refused.
+static bool setupBlocked() {
+    if (settings.setupDone) return false;
+    server.send(403, "text/plain", "Finish the first-time set-up first: choose a new Wi-Fi password.");
+    return true;
+}
+
+// First-time set-up: a new Wi-Fi password (required) and name (optional).
+static void handleSetup() {
+    if (settings.setupDone) {
+        server.send(409, "text/plain", "Already set up. Change the Wi-Fi on the Settings tab.");
+        return;
+    }
+    const String pass = server.arg("apPass");
+    String ssid = server.hasArg("apSsid") ? server.arg("apSsid") : String(settings.apSsid);
+    ssid.trim();
+    if (pass.length() < 8 || pass.length() > 63) {
+        server.send(400, "text/plain", "The password needs 8 to 63 characters.");
+        return;
+    }
+    if (pass == settings.apPass) {
+        server.send(400, "text/plain", "Choose a password of your own, not the temporary one.");
+        return;
+    }
+    if (ssid.length() < 1 || ssid.length() > 32) {
+        server.send(400, "text/plain", "The Wi-Fi name needs 1 to 32 characters.");
+        return;
+    }
+    strlcpy(settings.apSsid, ssid.c_str(), sizeof(settings.apSsid));
+    strlcpy(settings.apPass, pass.c_str(), sizeof(settings.apPass));
+    settings.setupDone = 1;
+    saveSettings();
+    logf("First-time set-up done: Wi-Fi \"%s\"\n", settings.apSsid);
+    server.send(200, "text/plain", "Saved. The emblem restarts with its new Wi-Fi.");
+    restartAt = millis() + 1500;
+}
+
 static void handleSet() {
+    if (setupBlocked()) return;
     long v;
     if (clockOnly()) {
         if (argInt("tz", -840, 840, v) && settings.tzMin != v) {
@@ -1193,6 +1272,7 @@ static void flushUpload() {
 // Streams an upload to /upload.tmp; stops writing once it passes uploadLimit.
 static void handleUpload(size_t limit) {
     HTTPUpload &up = server.upload();
+    if (!settings.setupDone) return;  // refused when the upload is done
     if (up.status == UPLOAD_FILE_START) {
         uploadBytes = 0;
         uploadLimit = limit;
@@ -1254,6 +1334,7 @@ static bool storeUpload(long slot, const String &path) {
 }
 
 static void handleImageDone() {
+    if (setupBlocked()) return;
     resyncDisplay();
     long slot = server.arg("slot").toInt();
     if (slot < 0 || slot >= IMAGE_SLOTS || uploadBytes != IMAGE_BYTES) {
@@ -1265,6 +1346,7 @@ static void handleImageDone() {
 }
 
 static void handleAnimDone() {
+    if (setupBlocked()) return;
     resyncDisplay();
     long slot = server.arg("slot").toInt();
     char magic[4] = {0};
@@ -1362,6 +1444,7 @@ static void handleThumb() {
 }
 
 static void handleImageDelete() {
+    if (setupBlocked()) return;
     long slot = server.arg("slot").toInt();
     if (slot >= 0 && slot < IMAGE_SLOTS) {
         const bool onScreen = shown.mode == MODE_IMAGE && shown.slot == slot;
@@ -1382,6 +1465,7 @@ static float angleDiff(float a, float b) {
 
 // Motion sensor set-up (upright, then turned clockwise) and "level now".
 static void handleMotion() {
+    if (setupBlocked()) return;
     if (!motionPresent()) {
         server.send(503, "text/plain", "No motion sensor found on this board");
         return;
@@ -1428,6 +1512,7 @@ static void handleMotion() {
 
 // Changing the panel type needs a restart because the panel is set up once at boot.
 static void handlePanel() {
+    if (setupBlocked()) return;
     long v;
     if (!argInt("panel", 0, PANEL_TYPE_COUNT - 1, v)) {
         server.send(400, "text/plain", "Missing panel");
@@ -1440,6 +1525,7 @@ static void handlePanel() {
 }
 
 static void handleWifi() {
+    if (setupBlocked()) return;
     argText("apSsid", settings.apSsid, sizeof(settings.apSsid));
     if (server.hasArg("apPass")) {
         String p = server.arg("apPass");
@@ -1458,6 +1544,7 @@ static void handleWifi() {
 }
 
 static void handleOtaUpload() {
+    if (!settings.setupDone) return;  // refused in handleOtaDone
     HTTPUpload &up = server.upload();
     if (up.status == UPLOAD_FILE_START) {
         darkForFlashWrites();
@@ -1472,6 +1559,7 @@ static void handleOtaUpload() {
 }
 
 static void handleOtaDone() {
+    if (setupBlocked()) return;
     if (Update.hasError()) {
         server.send(500, "text/plain", String("Update failed: ") + Update.errorString());
         return;
@@ -1507,7 +1595,9 @@ static void setupWeb() {
     server.on("/api/state", HTTP_GET, sendState);
     server.on("/api/set", HTTP_POST, handleSet);
     server.on("/api/thumb", HTTP_GET, handleThumb);
+    server.on("/api/setup", HTTP_POST, handleSetup);
     server.on("/api/next", HTTP_POST, [] {
+        if (setupBlocked()) return;
         wake(false);
         lastActivity = millis();
         nextItem();
@@ -1520,10 +1610,12 @@ static void setupWeb() {
     server.on("/api/panel", HTTP_POST, handlePanel);
     server.on("/api/motion", HTTP_POST, handleMotion);
     server.on("/api/test", HTTP_POST, [] {
+        if (setupBlocked()) return;
         server.send(200, "text/plain", "Showing red, green, blue, white");
         showTestColours();
     });
     server.on("/api/power/off", HTTP_POST, [] {
+        if (setupBlocked()) return;
         server.send(200, "text/plain", "Turning off. Press the BOOT button or power-cycle to wake it.");
         shutdownAt = millis() + 600;
     });

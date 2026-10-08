@@ -36,7 +36,7 @@ state = {
     "night": False, "rtc": True, "clock": None, "imu": True, "motionReact": 0, "doubleTap": 0,
     "levelSet": False, "moving": False, "jolt": 0.03, "boost": 0.0,
     "welcomeOn": 0, "welcomeSlot": 0, "welcomeSens": 2, "restMin": 0, "resting": False,
-    "rules": "", "activeRule": -1, "motionOff": 0, "resetReason": "power on", "safeMode": False, "uptime": 75, "build": "mock",
+    "setup": os.environ.get("MOCK_SETUP") == "1", "rules": "", "activeRule": -1, "motionOff": 0, "resetReason": "power on", "safeMode": False, "uptime": 75, "build": "mock",
 }
 tz_min = 0
 clock_offset = None  # phone time - server time, once set
@@ -168,6 +168,18 @@ class Handler(BaseHTTPRequestHandler):
                 self.reply(400, "Not a valid animation", "text/plain")
                 return
             self.store(slot, 2, data)
+        elif url.path == "/api/setup":
+            f = self.form()
+            p, ssid = f.get("apPass", ""), f.get("apSsid", state["apSsid"]).strip()
+            if not state["setup"]:
+                self.reply(409, "Already set up", "text/plain")
+            elif not 8 <= len(p) <= 63:
+                self.reply(400, "The password needs 8 to 63 characters.", "text/plain")
+            elif not 1 <= len(ssid) <= 32:
+                self.reply(400, "The Wi-Fi name needs 1 to 32 characters.", "text/plain")
+            else:
+                state["apSsid"], state["setup"] = ssid, False
+                self.reply(200, "Saved. The emblem restarts with its new Wi-Fi.", "text/plain")
         elif url.path == "/api/next":
             # Next built-in design or filled slot, like the firmware without auto-cycle.
             items = [(m, state["imageSlot"]) for m in (0, 1, 2, 4, 5, 6)]
