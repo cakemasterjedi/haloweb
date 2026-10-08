@@ -1,0 +1,61 @@
+G30 TRUNK EMBLEM DISPLAY — PRINT & INSTALL NOTES  (slim, closed back plate with pegs, no drilling)
+=========================================================================================
+Parts
+  G30_emblem_display_SLIM_HOUSING.3mf     print BACK-DOWN (as oriented)
+  G30_emblem_display_SLIM_TAB_CAP.3mf     print FACE-UP (as oriented) so it matches the housing's top finish
+  G30_emblem_display_SLIM_BACK_PLATE.3mf  print FLAT SIDE DOWN, pegs up (as oriented)
+  (drilled option: G30_emblem_display_SLIM_BACK_PLATE_CENTER_HOLE.3mf instead)
+
+Print settings (ASA, enclosed printer)
+  0.2 mm layers (0.12 mm for a smoother crown), 4 walls, 5 top / 4 bottom layers, 40% gyroid infill
+  Ironing ON for top surfaces (housing + tab cap) — gives the rim and cap the same sheen
+  NO BRIM, no supports: full bed contact on every part. Textured PEI or glue stick, bed 100-110 C,
+  enclosure closed, no part cooling for the first 3 layers, slow first layer
+  Back plate: 3 walls, 100% infill, slow outer walls for the pegs, cool on the bed so it stays flat
+  Test-fit in PLA first
+
+Factory-look finish (optional, recommended)
+  Wet-sand 400 -> 800 -> 1500, plastic adhesion promoter, filler primer, gloss black, 2K clear.
+  Paint the housing and tab cap together (cap taped in place) so the sheen matches.
+
+Hardware
+  3" x 1/16" acrylic disc (lens) + clear LOCA     (not B-7000: it crazes acrylic)
+  0.64 mm 3M VHB 5925 (cut with VHB_tape_template.svg at 100 %), adhesion promoter, isopropyl alcohol
+  Black neutral-cure silicone, silica gel pack
+  28 AWG silicone wire red + black (right peg), 30 AWG silicone wire x4 (left peg) — single wires, 2.7 mm peg holes
+  12 V -> 5 V converter (3 A), INA219, fuse tap kit with MINI and ATO taps + 3 A fuses in both sizes, ring terminal
+  Optional: 12 V kill switch, 5 A+ (inline rocker on a pigtail)
+
+Wiring
+  ALWAYS-ON fuse -> Mini or ATO fuse tap to match it (3 A) -> [kill switch] -> INA219 VIN+ ; VIN- -> converter IN+ ; converter IN- -> chassis ground
+  Converter OUT+ -> board 12-pin pin 2 (5 V);  OUT- -> pin 1 (GND)         [right peg]
+  INA219 VCC/GND/SDA/SCL -> board I2C port 3V3 / GND / GPIO15 / GPIO7      [left peg]
+  Never feed 12 V to the board. Don't ground through the trunk skin.
+
+Assembly (display unit)
+  1 Jig: drill two 5 mm holes 56 mm apart through a flat scrap board (stands in for the trunk lid).
+  2 Thread the power pair down the right peg and the 4 sensor wires down the left (seen from behind the car).
+  3 Plug into the 12-pin header + I2C port; route the wires flat between parts on the back of the board.
+  4 Plate on the jig (pegs in the holes). Silicone dab on each lug, housing down onto the lugs (tab pocket at 6 o'clock).
+  5 Silica gel on the board. Display in from the front (tab into the pocket); it rests on the plate.
+  6 Black silicone around the glass edge. Glue the tab cap on (silicone), tape lightly.
+  7 Confirm the phone control page works.          8 Glue the 3" lens into the rim pocket with LOCA.
+  9 Fill each peg around the wires with silicone.
+  Once cured, the lens and silicone hold the display in the housing.
+
+Install
+  1 Remove the factory roundel; leave the two grommets in the peg holes. Check they sit flush.
+  2 Clean the paint with IPA, adhesion promoter. Tape pieces on the rim around the lugs; silicone in the
+    lug gaps and the two tab corners so the ring is sealed all round.
+  3 Feed the wires through the grommets, push the pegs in (cable tab at 6 o'clock), press 30 s.
+  4 Join the wires to the tray inside the lid. Let cure 24 h before washing.
+
+Firmware: install from https://cakemasterjedi.github.io/haloweb (Chrome/Edge, USB-C). 
+  Phone: first power-up shows its Wi-Fi (EMBLEM-xxxx) and a temporary password on the screen;
+  join it and choose your own password when the page asks.
+  Power tab: voltage source Car battery (INA219), battery protection on, cutoff ~12.2 V.
+  Auto-off: leave on NEVER. Once it turns off it stays off until the BOOT button on the board is pressed
+  (sealed inside the housing) or a kill switch cuts and restores its power.
+Finding an always-on fuse: lock the car, wait ~20 min, test which fuses are still live.
+
+Key dimensions: 89.1 mm OD, 10.8 mm off the paint including the 0.64 mm VHB. Pegs 4 mm, 56 mm apart.

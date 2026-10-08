@@ -390,7 +390,7 @@
         </div>
       </div>
       <button class="danger wide" style="margin-top:14px" id="offNow">Turn off now</button>
-      <p class="hint">When off, press the board's <b>BOOT</b> button or cut and restore power to wake it.</p>
+      <p class="hint">When off, it stays off until the <b>BOOT button on the board</b> is pressed (or its power is cut and restored, e.g. with a kill switch). It does <b>not</b> come back on by itself, except after a low-voltage shutdown.</p>
     </div>
 
     <div class="card">
@@ -406,6 +406,8 @@
             <option value="15">15 min</option><option value="30">30 min</option><option value="45">45 min</option>
             <option value="60">1 hour</option><option value="120">2 hours</option><option value="240">4 hours</option>
           </select></div>
+        <p class="hint" id="autoOffHint"><b>Leave this on Never</b> if the emblem is wired to an always-on fuse. Once it turns off, it stays off <b>until the BOOT button on the board is pressed</b>, which you can't reach once it's sealed in the car. Only use a timer if you have a kill switch (or an ignition-switched feed) to cut and restore its power. Battery protection on the Power tab still protects the car battery.</p>
+        <div class="warn hidden" id="autoOffWarn" style="margin:10px 0 0">Auto-off is on. When it turns off, the emblem stays off <b>until the BOOT button on the board is pressed</b>, or until your kill switch cuts and restores its power. No kill switch? Set this back to <b>Never</b>.</div>
       </div>
       <div id="showOpts">
         <div class="row" style="margin-top:8px"><label for="showHours">Stay on for<span class="sub">Battery protection still applies</span></label>
@@ -416,6 +418,7 @@
           </select></div>
         <div class="stack"><div class="top2"><span>Car show brightness</span><output data-for="showBrightness"></output></div>
           <input type="range" id="showBrightness" min="5" max="100"></div>
+        <p class="hint">On an always-on fuse, pick <b>Until the battery is low</b>. With a time limit it turns off when the time is up and stays off until the BOOT button on the board is pressed (or a kill switch cuts and restores its power).</p>
       </div>
     </div>
 
@@ -1020,6 +1023,7 @@ function fillPowerMode() {
 
 function fillPower() {
   $('autoOffMin').value = st.autoOffMin;
+  $('autoOffWarn').classList.toggle('hidden', !(+st.autoOffMin > 0));
   $('showHours').value = st.showHours;
   $('voltSource').value = st.voltSource;
   $('lowVoltOn').checked = !!st.lowVoltOn;
@@ -1085,7 +1089,10 @@ function updatePowerStatus() {
 
 function setupPower() {
   document.querySelectorAll('#powerModes button').forEach((b) => b.onclick = () => send({powerMode: +b.dataset.pm}));
-  $('autoOffMin').onchange = (e) => send({autoOffMin: +e.target.value});
+  $('autoOffMin').onchange = (e) => {
+    $('autoOffWarn').classList.toggle('hidden', !(+e.target.value > 0));
+    send({autoOffMin: +e.target.value});
+  };
   $('autoDim').onchange = (e) => send({autoDim: e.target.checked ? 1 : 0});
   $('nightFrom').onchange = (e) => e.target.value && send({nightFrom: minutes(e.target.value)});
   $('nightTo').onchange = (e) => e.target.value && send({nightTo: minutes(e.target.value)});
@@ -1109,7 +1116,7 @@ function setupPower() {
   };
   $('calReset').onclick = () => { send({calibrateReset: 1}); toast('Calibration reset'); };
   $('offNow').onclick = async () => {
-    if (!confirm('Turn the emblem off now? Press BOOT or cut power to wake it.')) return;
+    if (!confirm('Turn the emblem off now? It stays off until the BOOT button on the board is pressed (or its power is cut and restored).')) return;
     try { toast(await api('/api/power/off', new URLSearchParams()), 5000); } catch (e) {}
     setOnline(false, 'Off');
   };
