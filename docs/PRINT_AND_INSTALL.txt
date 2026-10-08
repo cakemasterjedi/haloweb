@@ -53,7 +53,9 @@ Install
 Firmware: install from https://cakemasterjedi.github.io/haloweb (Chrome/Edge, USB-C). 
   Phone: first power-up shows its Wi-Fi (EMBLEM-xxxx) and a temporary password on the screen;
   join it and choose your own password when the page asks.
-  Power tab: voltage source Car battery (INA219), battery protection on, cutoff ~12.2 V, auto-off off.
+  Power tab: voltage source Car battery (INA219), battery protection on, cutoff ~12.2 V.
+  Auto-off: leave on NEVER. Once it turns off it stays off until the BOOT button on the board is pressed
+  (sealed inside the housing) or a kill switch cuts and restores its power.
 Finding an always-on fuse: lock the car, wait ~20 min, test which fuses are still live.
 
 Key dimensions: 89.1 mm OD, 10.8 mm off the paint including the 0.64 mm VHB. Pegs 4 mm, 56 mm apart.

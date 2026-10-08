@@ -71,7 +71,8 @@ mounted at an angle). Settings are saved on the board.
 
 > **Auto-off and always-on fuses:** if the emblem runs from an always-on fuse, leave
 > **Power → Turn off after** on **Never** unless you've fitted a kill switch. Once auto-off turns it
-> off, it stays off until you press BOOT or cut and restore its power. Battery protection is
+> off, it stays off until the BOOT button on the board is pressed (or a kill switch cuts and restores
+> its power). Battery protection is
 > separate: after a low-voltage shutdown it wakes by itself.
 
 ## G30 trunk emblem build
