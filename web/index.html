@@ -390,7 +390,7 @@
         </div>
       </div>
       <button class="danger wide" style="margin-top:14px" id="offNow">Turn off now</button>
-      <p class="hint">When off, press the board's <b>BOOT</b> button or cut and restore power to wake it.</p>
+      <p class="hint">When off, press the board's <b>BOOT</b> button or cut and restore power (kill switch) to wake it. It does <b>not</b> come back on by itself, except after a low-voltage shutdown.</p>
     </div>
 
     <div class="card">
@@ -406,6 +406,8 @@
             <option value="15">15 min</option><option value="30">30 min</option><option value="45">45 min</option>
             <option value="60">1 hour</option><option value="120">2 hours</option><option value="240">4 hours</option>
           </select></div>
+        <p class="hint" id="autoOffHint"><b>Leave this on Never</b> if the emblem is wired to an always-on fuse. Once it turns off it stays off until you press the board's BOOT button or cut and restore its power, so only use a timer if you have a kill switch (or an ignition-switched feed) to power it back on. Battery protection on the Power tab still protects the car battery.</p>
+        <div class="warn hidden" id="autoOffWarn" style="margin:10px 0 0">Auto-off is on. When it turns off, the emblem <b>won't come back on by itself</b>: flip your kill switch off and on (or press BOOT) to wake it. No kill switch? Set this back to <b>Never</b>.</div>
       </div>
       <div id="showOpts">
         <div class="row" style="margin-top:8px"><label for="showHours">Stay on for<span class="sub">Battery protection still applies</span></label>
@@ -415,7 +417,7 @@
             <option value="8">8 hours</option><option value="12">12 hours</option><option value="24">24 hours</option>
           </select></div>
         <div class="stack"><div class="top2"><span>Car show brightness</span><output data-for="showBrightness"></output></div>
-          <input type="range" id="showBrightness" min="5" max="100"></div>
+          <input type="range" id="showBrightness" min="5" max="100"></div>        <p class="hint">On an always-on fuse, pick <b>Until the battery is low</b>. With a time limit it turns off when the time is up and stays off until BOOT or a power cycle (kill switch).</p>
       </div>
     </div>
 
@@ -1020,6 +1022,7 @@ function fillPowerMode() {
 
 function fillPower() {
   $('autoOffMin').value = st.autoOffMin;
+  $('autoOffWarn').classList.toggle('hidden', !(+st.autoOffMin > 0));
   $('showHours').value = st.showHours;
   $('voltSource').value = st.voltSource;
   $('lowVoltOn').checked = !!st.lowVoltOn;
@@ -1085,7 +1088,10 @@ function updatePowerStatus() {
 
 function setupPower() {
   document.querySelectorAll('#powerModes button').forEach((b) => b.onclick = () => send({powerMode: +b.dataset.pm}));
-  $('autoOffMin').onchange = (e) => send({autoOffMin: +e.target.value});
+  $('autoOffMin').onchange = (e) => {
+    $('autoOffWarn').classList.toggle('hidden', !(+e.target.value > 0));
+    send({autoOffMin: +e.target.value});
+  };
   $('autoDim').onchange = (e) => send({autoDim: e.target.checked ? 1 : 0});
   $('nightFrom').onchange = (e) => e.target.value && send({nightFrom: minutes(e.target.value)});
   $('nightTo').onchange = (e) => e.target.value && send({nightTo: minutes(e.target.value)});

@@ -1,0 +1,213 @@
+<title>Emblem Display Wiring</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Saira+Semi+Condensed:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one narrow reading column — diagram first, then the connection checklist, then notes */
+:root {
+  --bg: #eef0f3; --surface: #ffffff; --ink: #161a1f; --ink-2: #57606b; --line: #d3d8de;
+  --w12: #c8352a; --w5: #b07b00; --w33: #d9631c; --sda: #2468b8; --scl: #23874a;
+  --display: "Saira Semi Condensed", "Arial Narrow", Arial, sans-serif;
+  --body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #12161b; --surface: #1a1f25; --ink: #e7ebef; --ink-2: #9aa5b1; --line: #2e3640;
+  --w12: #ff6a5c; --w5: #f2c14e; --w33: #ff9a52; --sda: #6aa8ff; --scl: #5fd08f; color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --bg: #12161b; --surface: #1a1f25; --ink: #e7ebef; --ink-2: #9aa5b1; --line: #2e3640;
+  --w12: #ff6a5c; --w5: #f2c14e; --w33: #ff9a52; --sda: #6aa8ff; --scl: #5fd08f; color-scheme: dark; }
+body { background: var(--bg); color: var(--ink); font-family: var(--body); font-size: 15px; line-height: 1.5; }
+main { max-width: 680px; margin: 0 auto; padding-inline: 16px; padding-block: 24px 48px; display: flex; flex-direction: column; gap: 28px; }
+h1 { font-family: var(--display); font-weight: 700; font-size: 1.9rem; line-height: 1.05; margin: 0; text-wrap: balance; }
+h2 { font-family: var(--display); font-weight: 600; font-size: 1.15rem; letter-spacing: 0.02em; margin: 0 0 10px; }
+.lede { margin: 6px 0 0; color: var(--ink-2); max-width: 60ch; }
+figure { margin: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px; }
+figure svg { display: block; width: 100%; height: auto; color: var(--ink); }
+figcaption { margin-top: 10px; font-size: 0.85rem; color: var(--ink-2); }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 10px; font-size: 0.82rem; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.legend i { width: 18px; height: 4px; border-radius: 2px; display: inline-block; }
+.table-wrap { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; }
+table { border-collapse: collapse; width: 100%; font-size: 0.88rem; min-width: 460px; }
+th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-family: var(--display); font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; font-size: 0.72rem; color: var(--ink-2); }
+tr:last-child td { border-bottom: 0; }
+td .sw { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: -1px; }
+label.check { display: flex; gap: 8px; align-items: start; cursor: pointer; }
+label.check input { margin-top: 3px; accent-color: var(--w12); }
+ul.notes { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 8px; }
+.warn { border-left: 3px solid var(--w12); padding: 10px 12px; background: var(--surface); border-radius: 0 8px 8px 0; }
+pre { margin: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px; overflow-x: auto; font: 0.8rem/1.5 var(--mono); }
+code { font-family: var(--mono); font-size: 0.88em; }
+</style>
+
+<main>
+  <header>
+    <h1>Emblem Display Wiring</h1>
+    <p class="lede">Power and voltage sensing for the trunk-emblem screen: 12 V from an always-on fuse in the trunk fuse box (through an optional kill switch), through the INA219 and the 12 V → 5 V converter in the trunk lid, then up through the two hollow pegs in the factory peg holes: power through one, sensor wires through the other. No drilling.</p>
+  </header>
+
+  <figure>
+    <svg viewBox="0 0 360 640" role="img" aria-label="Wiring: always-on fuse box circuit to a Mini or ATO fuse tap and 3 A fuse, an optional kill switch, into the trunk lid to INA219 VIN plus, VIN minus to converter IN plus, converter IN minus to chassis ground, converter 5 V and ground to the board's 12-pin header, and INA219 VCC, GND, SCL and SDA to the board's I2C port.">
+      <defs>
+        <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+        </marker>
+      </defs>
+      <g font-family="IBM Plex Sans, system-ui, sans-serif" font-size="12" fill="currentColor">
+        <!-- fuse box -->
+        <rect x="100" y="14" width="160" height="40" rx="7" fill="none" stroke="currentColor" stroke-width="1.5"/>
+        <text x="180" y="32" text-anchor="middle" font-weight="600">Rear fuse box (trunk)</text>
+        <text x="180" y="47" text-anchor="middle" font-size="11" opacity="0.7">always-on (constant) 12 V circuit</text>
+        <!-- fuse tap -->
+        <rect x="100" y="84" width="160" height="40" rx="7" fill="none" stroke="currentColor" stroke-width="1.5"/>
+        <text x="180" y="102" text-anchor="middle" font-weight="600">Fuse tap + 3 A fuse</text>
+        <text x="180" y="117" text-anchor="middle" font-size="11" opacity="0.7">Mini or ATO, to match the fuse</text>
+        <line x1="180" y1="54" x2="180" y2="84" style="stroke:var(--w12)" stroke-width="3"/>
+
+        <!-- boundary: hinge boot -->
+        <line x1="8" y1="158" x2="352" y2="158" stroke="currentColor" stroke-dasharray="5 4" opacity="0.5"/>
+        <text x="8" y="152" font-size="11" opacity="0.7">through hinge boot → trunk lid</text>
+
+        <!-- 12 V into INA219 -->
+        <line x1="180" y1="124" x2="180" y2="131" style="stroke:var(--w12)" stroke-width="3"/>
+        <circle cx="180" cy="133" r="2.5" fill="none" stroke="currentColor" stroke-width="1.5"/>
+        <line x1="181.5" y1="135" x2="191" y2="147" stroke="currentColor" stroke-width="2"/>
+        <circle cx="180" cy="149" r="2.5" fill="none" stroke="currentColor" stroke-width="1.5"/>
+        <text x="196" y="138" font-size="10.5" font-weight="600">kill switch</text>
+        <text x="196" y="150" font-size="10" opacity="0.7">optional, in the trunk</text>
+        <polyline points="180,151 180,172 110,172 110,190" fill="none" style="stroke:var(--w12)" stroke-width="3"/>
+
+        <!-- INA219 -->
+        <rect x="40" y="190" width="140" height="78" rx="7" fill="none" stroke="currentColor" stroke-width="1.5"/>
+        <text x="110" y="222" text-anchor="middle" font-weight="600">INA219</text>
+        <text x="110" y="238" text-anchor="middle" font-size="11" opacity="0.7">voltage sensor</text>
+        <text x="62" y="204" font-size="10.5">VIN+</text>
+        <text x="62" y="262" font-size="10.5">VIN−</text>
+        <text x="174" y="204" text-anchor="end" font-size="10">VCC</text>
+        <text x="174" y="222" text-anchor="end" font-size="10">GND</text>
+        <text x="174" y="240" text-anchor="end" font-size="10">SCL</text>
+        <text x="174" y="258" text-anchor="end" font-size="10">SDA</text>
+
+        <!-- VIN- to converter IN+ -->
+        <line x1="110" y1="268" x2="110" y2="310" style="stroke:var(--w12)" stroke-width="3"/>
+        <text x="116" y="294" font-size="11" style="fill:var(--w12)">12 V</text>
+
+        <!-- converter -->
+        <rect x="40" y="310" width="140" height="78" rx="7" fill="none" stroke="currentColor" stroke-width="1.5"/>
+        <text x="110" y="342" text-anchor="middle" font-weight="600">12 V → 5 V</text>
+        <text x="110" y="358" text-anchor="middle" font-size="11" opacity="0.7">buck converter</text>
+        <text x="62" y="324" font-size="10.5">IN+</text>
+        <text x="46" y="382" font-size="10">OUT+</text>
+        <text x="142" y="382" font-size="10">OUT−</text>
+        <!-- IN- to chassis ground -->
+        <polyline points="40,330 16,330 16,356" fill="none" stroke="currentColor" stroke-width="3"/>
+        <line x1="6" y1="356" x2="26" y2="356" stroke="currentColor" stroke-width="2"/>
+        <line x1="10" y1="361" x2="22" y2="361" stroke="currentColor" stroke-width="2"/>
+        <line x1="14" y1="366" x2="18" y2="366" stroke="currentColor" stroke-width="2"/>
+        <text x="8" y="382" font-size="10" opacity="0.8">IN−</text>
+        <text x="8" y="395" font-size="10" opacity="0.8">chassis</text>
+
+        <!-- I2C wires from INA219 to board -->
+        <polyline points="180,200 236,200 236,512" fill="none" style="stroke:var(--w33)" stroke-width="2.5"/>
+        <polyline points="180,218 260,218 260,512" fill="none" stroke="currentColor" stroke-width="2.5"/>
+        <polyline points="180,236 284,236 284,512" fill="none" style="stroke:var(--scl)" stroke-width="2.5"/>
+        <polyline points="180,254 308,254 308,512" fill="none" style="stroke:var(--sda)" stroke-width="2.5"/>
+
+        <!-- converter outputs to board -->
+        <line x1="72" y1="388" x2="72" y2="512" style="stroke:var(--w5)" stroke-width="3"/>
+        <line x1="150" y1="388" x2="150" y2="512" stroke="currentColor" stroke-width="3"/>
+        <text x="78" y="440" font-size="11" style="fill:var(--w5)">5 V</text>
+        <text x="156" y="440" font-size="11">GND</text>
+
+        <!-- boundary: hollow pegs in the factory peg holes -->
+        <line x1="8" y1="470" x2="352" y2="470" stroke="currentColor" stroke-dasharray="5 4" opacity="0.5"/>
+        <rect x="48" y="474" width="112" height="15" rx="3" style="fill:var(--surface)"/>
+        <text x="104" y="485" text-anchor="middle" font-size="10.5" opacity="0.8">right peg (hollow)</text>
+        <rect x="216" y="474" width="112" height="15" rx="3" style="fill:var(--surface)"/>
+        <text x="272" y="485" text-anchor="middle" font-size="10.5" opacity="0.8">left peg (hollow)</text>
+
+        <!-- display board -->
+        <rect x="30" y="512" width="300" height="112" rx="9" fill="none" stroke="currentColor" stroke-width="1.5"/>
+        <text x="180" y="606" text-anchor="middle" font-weight="600">Waveshare display board</text>
+        <rect x="44" y="512" width="132" height="62" rx="5" fill="none" stroke="currentColor" opacity="0.6"/>
+        <text x="110" y="566" text-anchor="middle" font-size="11" opacity="0.8">12-pin header</text>
+        <text x="72" y="532" text-anchor="middle" font-size="10.5">pin 2</text>
+        <text x="72" y="546" text-anchor="middle" font-size="10.5">5 V</text>
+        <text x="150" y="532" text-anchor="middle" font-size="10.5">pin 1</text>
+        <text x="150" y="546" text-anchor="middle" font-size="10.5">GND</text>
+        <rect x="222" y="512" width="100" height="62" rx="5" fill="none" stroke="currentColor" opacity="0.6"/>
+        <text x="272" y="566" text-anchor="middle" font-size="11" opacity="0.8">I2C port</text>
+        <text x="236" y="532" text-anchor="middle" font-size="9.5">3V3</text>
+        <text x="260" y="532" text-anchor="middle" font-size="9.5">GND</text>
+        <text x="284" y="532" text-anchor="middle" font-size="9.5">SCL</text>
+        <text x="308" y="532" text-anchor="middle" font-size="9.5">SDA</text>
+      </g>
+    </svg>
+    <figcaption>12 V passes through the INA219's sense terminals before the converter, so the board can read the car's voltage. Power goes up the right peg and the sensor wires up the left one (seen from behind the car).</figcaption>
+    <div class="legend" aria-hidden="true">
+      <span><i style="background: var(--w12)"></i>12 V</span>
+      <span><i style="background: var(--w5)"></i>5 V</span>
+      <span><i style="background: var(--ink)"></i>Ground</span>
+      <span><i style="background: var(--w33)"></i>3.3 V</span>
+      <span><i style="background: var(--scl)"></i>SCL</span>
+      <span><i style="background: var(--sda)"></i>SDA</span>
+    </div>
+  </figure>
+
+  <section>
+    <h2>Connection checklist</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>✓</th><th>From</th><th>To</th><th>Wire</th></tr></thead>
+        <tbody>
+          <tr><td><label class="check"><input type="checkbox" id="c1" aria-label="Done"></label></td><td>Fuse tap output (3 A fuse)</td><td>Kill switch, if fitted</td><td><span class="sw" style="background:var(--w12)"></span>12 V</td></tr>
+          <tr><td><label class="check"><input type="checkbox" id="c2" aria-label="Done"></label></td><td>Kill switch (or fuse tap)</td><td>INA219 <code>VIN+</code></td><td><span class="sw" style="background:var(--w12)"></span>12 V</td></tr>
+          <tr><td><label class="check"><input type="checkbox" id="c3" aria-label="Done"></label></td><td>INA219 <code>VIN−</code></td><td>Converter IN+ (red lead)</td><td><span class="sw" style="background:var(--w12)"></span>12 V</td></tr>
+          <tr><td><label class="check"><input type="checkbox" id="c4" aria-label="Done"></label></td><td>Converter IN− (black lead)</td><td>Chassis ground point in the trunk lid</td><td><span class="sw" style="background:var(--ink)"></span>Ground</td></tr>
+          <tr><td><label class="check"><input type="checkbox" id="c5" aria-label="Done"></label></td><td>Converter OUT+ (yellow lead)</td><td>Board 12-pin header, pin 2 (5 V)</td><td><span class="sw" style="background:var(--w5)"></span>5 V</td></tr>
+          <tr><td><label class="check"><input type="checkbox" id="c6" aria-label="Done"></label></td><td>Converter OUT− (black lead)</td><td>Board 12-pin header, pin 1 (GND)</td><td><span class="sw" style="background:var(--ink)"></span>Ground</td></tr>
+          <tr><td><label class="check"><input type="checkbox" id="c7" aria-label="Done"></label></td><td>INA219 <code>VCC</code></td><td>Board I2C port <code>3V3</code></td><td><span class="sw" style="background:var(--w33)"></span>3.3 V</td></tr>
+          <tr><td><label class="check"><input type="checkbox" id="c8" aria-label="Done"></label></td><td>INA219 <code>GND</code></td><td>Board I2C port <code>GND</code></td><td><span class="sw" style="background:var(--ink)"></span>Ground</td></tr>
+          <tr><td><label class="check"><input type="checkbox" id="c9" aria-label="Done"></label></td><td>INA219 <code>SCL</code></td><td>Board I2C port <code>SCL</code> (GPIO7)</td><td><span class="sw" style="background:var(--scl)"></span>SCL</td></tr>
+          <tr><td><label class="check"><input type="checkbox" id="c10" aria-label="Done"></label></td><td>INA219 <code>SDA</code></td><td>Board I2C port <code>SDA</code> (GPIO15)</td><td><span class="sw" style="background:var(--sda)"></span>SDA</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Before you power it up</h2>
+    <div class="warn">Power the INA219 from the board's <strong>3.3 V</strong>, never from the converter's 5 V. Its pull-ups would put 5 V on the ESP32's data pins. And never connect 12 V to the board's <strong>BAT</strong> connector.</div>
+  </section>
+
+  <section>
+    <h2>Notes</h2>
+    <ul class="notes">
+      <li><strong>Which circuit:</strong> to keep the display running with the car off, tap an <em>always-on</em> (constant, terminal 30) fuse in the trunk fuse box, on the right side behind the trim cover. Find one with a test light or multimeter: lock the car, wait about 20 minutes for it to go to sleep, and check which fuses are still live. Avoid airbag, fuel pump, DSC and engine-computer fuses. The firmware's battery saver turns the display off if the battery gets low.</li>
+      <li><strong>Kill switch (optional):</strong> for a car that sits for weeks, put a switch in the 12 V line right after the fuse tap so you can turn the display fully off. Use a 12 V switch rated 5 A or more: an inline rocker on a pigtail is easiest (no mounting), or a small sealed toggle tucked behind the trunk side trim near the fuse box.</li>
+      <li><strong>Fuse tap:</strong> the G30 fuse box has both Mini and ATO (standard-size) blade fuses. Check the size of the fuse you tap and use the matching add-a-circuit with a 3 A fuse of the same size (a kit with both is easiest). The original fuse goes in the lower slot and the new 3 A fuse in the upper one. Fit the tap in the direction that puts its lead on the load side.</li>
+      <li><strong>Chassis ground:</strong> use an existing body ground stud or bolt in the trunk lid, on bare metal. Don't ground through the emblem pegs or the painted skin.</li>
+      <li><strong>Cables:</strong> each peg has a 2.7 mm wire hole. Right peg: two 28 AWG silicone wires (5 V + GND, about 1.0 mm thick each; keep the run under 1 m). Left peg: four 30 AWG silicone wires (3.3 V, GND, SDA, SCL). Use single wires, not sheathed cable, and fill each peg around the wires with silicone.</li>
+      <li><strong>Shared ground:</strong> the converter's input and output grounds are common, so the INA219's GND (through the left peg to the board's I2C port) shares the same ground as the 12 V side, which it needs to read voltage.</li>
+      <li><strong>Address:</strong> the INA219 is at I2C address <code>0x40</code>, which doesn't clash with the board's touch, RTC, IMU or IO-expander chips.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>Reading the voltage (Arduino)</h2>
+    <pre><code>#include &lt;Wire.h&gt;
+#include &lt;Adafruit_INA219.h&gt;
+
+Adafruit_INA219 ina;               // default address 0x40
+
+void setup() {
+  Wire.begin(15, 7);               // board's I2C: SDA = GPIO15, SCL = GPIO7
+  ina.begin(&amp;Wire);
+}
+
+float carVolts() {                 // voltage at VIN+ (the 12 V feed)
+  return ina.getBusVoltage_V() + ina.getShuntVoltage_mV() / 1000.0;
+}</code></pre>
+  </section>
+</main>

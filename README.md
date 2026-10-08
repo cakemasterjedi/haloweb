@@ -69,6 +69,18 @@ mounted at an angle). Settings are saved on the board.
   little current asleep (regulator, USB chip, LEDs), so for zero drain use an
   ignition-switched supply.
 
+> **Auto-off and always-on fuses:** if the emblem runs from an always-on fuse, leave
+> **Power → Turn off after** on **Never** unless you've fitted a kill switch. Once auto-off turns it
+> off, it stays off until you press BOOT or cut and restore its power. Battery protection is
+> separate: after a low-voltage shutdown it wakes by itself.
+
+## G30 trunk emblem build
+
+Want it in place of the trunk roundel on a G30 5 Series? The [`hardware`](hardware) folder has a slim
+3D-printed housing (10.8 mm off the paint, no drilling: it plugs into the factory peg holes),
+the wiring for the car battery and the INA219, and a step-by-step
+[build guide](docs/G30_Emblem_Display_Build_Guide.pdf).
+
 ## Motion sensor (Settings tab)
 
 The board has a motion sensor (QMI8658), used for:
