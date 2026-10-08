@@ -46,26 +46,29 @@ jobs:
       - name: Install PlatformIO and esptool
         run: pip install platformio "esptool==4.8.1"
 
-      - name: Build firmware
-        run: pio run -e esp32-s3-display
+      - name: Build firmware (standard and kit edition)
+        run: pio run -e esp32-s3-display -e esp32-s3-kit
 
       - name: Make the installer files
         run: |
           set -e
-          B=.pio/build/esp32-s3-display
           APP0=$(find ~/.platformio/packages -name boot_app0.bin | head -n 1)
-          for f in "$B/bootloader.bin" "$B/partitions.bin" "$B/firmware.bin" "$APP0"; do
-            test -f "$f" || { echo "missing: $f"; exit 1; }
-          done
           mkdir -p site
           cp installer/* site/
-          # One image with bootloader, partition table, OTA boot data and the app (offsets from partitions.csv)
-          esptool.py --chip esp32s3 merge_bin -o site/emblem-full.bin --flash_size 16MB \
-            0x0 "$B/bootloader.bin" 0x8000 "$B/partitions.bin" 0xe000 "$APP0" 0x10000 "$B/firmware.bin"
-          # App only, for updates from the phone page (Settings → firmware update)
-          cp "$B/firmware.bin" site/emblem-update.bin
+          # name of the files on the site : PlatformIO environment
+          for pair in "emblem:esp32-s3-display" "emblem-kit:esp32-s3-kit"; do
+            NAME=${pair%%:*}; B=.pio/build/${pair#*:}
+            for f in "$B/bootloader.bin" "$B/partitions.bin" "$B/firmware.bin" "$APP0"; do
+              test -f "$f" || { echo "missing: $f"; exit 1; }
+            done
+            # One image with bootloader, partition table, OTA boot data and the app (offsets from partitions.csv)
+            esptool.py --chip esp32s3 merge_bin -o "site/$NAME-full.bin" --flash_size 16MB \
+              0x0 "$B/bootloader.bin" 0x8000 "$B/partitions.bin" 0xe000 "$APP0" 0x10000 "$B/firmware.bin"
+            # App only, for updates from the phone page (Settings → Firmware)
+            cp "$B/firmware.bin" "site/$NAME-update.bin"
+          done
           VER="$(git rev-parse --short HEAD) ($(date -u +%Y-%m-%d))"
-          sed -i "s/__VERSION__/$VER/g" site/manifest.json site/index.html
+          sed -i "s/__VERSION__/$VER/g" site/manifest.json site/manifest-kit.json site/index.html site/kit.html
           ls -la site
 
       - uses: actions/upload-pages-artifact@v3

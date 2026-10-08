@@ -522,7 +522,7 @@
     </div>
 
     <div class="card">
-      <h2>Firmware</h2>
+      <h2 id="fwTitle" style="user-select:none;-webkit-user-select:none">Firmware</h2>
       <p class="hint" style="margin-top:0">Optional: install a new firmware file over Wi-Fi. Get the newest one (<code>emblem-update.bin</code>) from <b>cakemasterjedi.github.io/haloweb</b>, or use <code>firmware.bin</code> from <code>.pio/build/esp32-s3-display/</code> if you build it yourself. Settings and pictures are kept.</p>
       <input type="file" id="fw" accept=".bin" style="margin-top:10px">
       <p class="hint" id="resetInfo"></p>
@@ -530,7 +530,12 @@
         <button id="flash">Update firmware</button>
         <button id="reboot">Restart</button>
       </div>
+      <div id="factoryBox" hidden style="margin-top:14px">
+        <p class="hint">Factory reset: erases all settings, pictures and animations and starts the first-time set-up again, with a new Wi-Fi name and temporary password shown on the emblem. The battery and level calibrations are kept.</p>
+        <button class="danger wide" id="factoryReset">Factory reset</button>
+      </div>
     </div>
+
   </section>
 </main>
 
@@ -1159,6 +1164,20 @@ function setupSystem() {
   };
   $('testColours').onclick = async () => {
     try { toast(await api('/api/test', new URLSearchParams()), 3000); } catch (e) { toast(e.message, 4000); }
+  };
+  // Factory reset is tucked away: tap the Firmware heading 7 times to show it
+  // (holding the board's BOOT button for 10 seconds does the same).
+  let fwTaps = 0, fwTapAt = 0;
+  $('fwTitle').onclick = () => {
+    const t = Date.now();
+    fwTaps = t - fwTapAt < 1500 ? fwTaps + 1 : 1;
+    fwTapAt = t;
+    if (fwTaps >= 7) $('factoryBox').hidden = false;
+  };
+  $('factoryReset').onclick = async () => {
+    if (!confirm('Factory reset? All settings, pictures and animations are erased, and the Wi-Fi name and password change, so this phone will lose its connection.')) return;
+    try { toast(await api('/api/factoryReset', new URLSearchParams({confirm: 'RESET'})), 5000); } catch (e) { toast(e.message, 5000); return; }
+    setOnline(false, 'Restarting…');
   };
   $('reboot').onclick = async () => {
     try { await api('/api/reboot', new URLSearchParams()); } catch (e) {}
