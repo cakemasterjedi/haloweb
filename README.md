@@ -9,6 +9,16 @@ Firmware that turns the ESP32-S3 2.8" 480×480 round display board into a
 digital roundel for the car. You control it from your phone's browser, so
 there's no app to install.
 
+## Install it (no coding needed)
+
+Open the **[web installer](https://cakemasterjedi.github.io/haloweb/)** in Chrome or Edge on a
+computer, plug the board in with a USB-C data cable and click **Install**. It always has the
+newest build, plus the update file for installing updates from your phone later.
+
+The installer is built and published automatically by
+[`.github/workflows/web-installer.yml`](.github/workflows/web-installer.yml) on every push to
+`main` that changes the firmware.
+
 ## What it can show
 
 | Mode | What it looks like | Speed slider |
