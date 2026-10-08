@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Emblem Installer</title>
+<meta name="description" content="Install the digital BMW emblem firmware on a Waveshare ESP32-S3 2.8C round display from your browser.">
+<script type="module" src="https://unpkg.com/esp-web-tools@10.0.1/dist/web/install-button.js?module"></script>
+<style>
+  :root { --bg: #f5f6f8; --card: #ffffff; --ink: #14171b; --ink2: #5b6570; --line: #dde1e6; --accent: #1c69d4; --accent-ink: #ffffff; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #0f1215; --card: #171b20; --ink: #e8ebee; --ink2: #9aa5b1; --line: #2a3139; --accent: #4a8ff0; --accent-ink: #0f1215; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 660px; margin: 0 auto; padding: 36px 16px 64px; }
+  .badge { width: 64px; height: 64px; border-radius: 50%; margin-bottom: 14px;
+           background: conic-gradient(#1c69d4 0 25%, #fff 0 50%, #1c69d4 0 75%, #fff 0); border: 7px solid #111; box-shadow: 0 0 0 2px #9aa5b1; }
+  h1 { font-size: 28px; line-height: 1.2; margin: 0 0 6px; }
+  h2 { font-size: 18px; margin: 0 0 10px; }
+  .sub { color: var(--ink2); margin: 0 0 22px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 20px; margin: 16px 0; }
+  ol { padding-left: 22px; margin: 0; } li { margin: 9px 0; }
+  .install { margin: 18px 0 6px; }
+  esp-web-install-button button[slot="activate"] {
+    background: var(--accent); color: var(--accent-ink); border: 0; border-radius: 10px;
+    padding: 14px 30px; font-size: 18px; font-weight: 650; cursor: pointer; }
+  .note { color: var(--ink2); font-size: 14px; }
+  .ver { color: var(--ink2); font-size: 13px; }
+  code { background: var(--line); padding: 1px 6px; border-radius: 5px; font-size: 0.92em; }
+  a { color: var(--accent); }
+  .dl { display: inline-block; margin-top: 8px; padding: 9px 16px; border: 1px solid var(--accent); border-radius: 9px; text-decoration: none; font-weight: 600; }
+</style>
+</head>
+<body>
+<main>
+  <div class="badge" aria-hidden="true"></div>
+  <h1>Install the emblem firmware</h1>
+  <p class="sub">For the Waveshare ESP32-S3 2.8C round display. Nothing to download or install on your computer: this page does it from the browser.</p>
+
+  <div class="card">
+    <h2>1. Install</h2>
+    <ol>
+      <li>Use <b>Chrome</b> or <b>Edge</b> on a computer (Windows, Mac, Linux or Chromebook). Phones, Safari and Firefox can't do this.</li>
+      <li>Plug the display into the computer with a <b>USB-C data cable</b>. Some cables only charge; if nothing shows up, try another one.</li>
+      <li>Click <b>Install</b>, pick the port that appeared (it usually has <i>USB</i> or <i>CH343</i> in the name), click <b>Connect</b>, then <b>Install</b>.</li>
+      <li>Wait for <i>Installation complete</i> (about a minute). The display restarts with the emblem on it.</li>
+    </ol>
+    <div class="install">
+      <esp-web-install-button manifest="manifest.json">
+        <button slot="activate">Install</button>
+        <span slot="unsupported">This browser can't install firmware. Open this page in Chrome or Edge on a computer.</span>
+        <span slot="not-allowed">Open this page from its https address, not as a file on your computer.</span>
+      </esp-web-install-button>
+    </div>
+    <p class="ver">Firmware build __VERSION__</p>
+    <p class="note"><b>No port in the list?</b> Windows usually installs the USB driver by itself after a minute. If it doesn't, install the <b>CH343</b> driver from wch-ic.com and try again. Still nothing: unplug, hold the board's <b>BOOT</b> button, plug back in, let go, and click Install.</p>
+  </div>
+
+  <div class="card">
+    <h2>2. Control it from your phone</h2>
+    <ol>
+      <li>Power the display. It makes a Wi-Fi network called <code>BMW-Emblem</code>, password <code>emblem123</code>.</li>
+      <li>Join it on your phone. The control page opens by itself; if not, open <b>http://192.168.4.1</b>. On Android, choose <b>Stay connected</b> when it says there's no internet.</li>
+      <li>Pick a design, brightness and power settings. Settings are saved on the display.</li>
+      <li>Car battery reading: on the <b>Power</b> tab set the voltage source to <b>Car battery (INA219)</b>, turn on battery protection and calibrate it with a multimeter reading.</li>
+    </ol>
+  </div>
+
+  <div class="card">
+    <h2>3. Updating later</h2>
+    <p>Once it's in the car you don't need the USB port. Download the update file, join <code>BMW-Emblem</code>, and install it from the control page under <b>Settings → Firmware</b>.</p>
+    <a class="dl" href="emblem-update.bin" download>Download update file</a>
+    <p class="note">This always has the newest build. Use this file for phone updates; the Install button above is for the first install over USB.</p>
+  </div>
+
+  <p class="note">Source code, 3D-print files and the build guide: <a href="https://github.com/cakemasterjedi/haloweb">github.com/cakemasterjedi/haloweb</a></p>
+</main>
+</body>
+</html>

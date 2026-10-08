@@ -1,0 +1,82 @@
+# Builds the firmware and publishes the one-click web installer on GitHub Pages:
+#   https://cakemasterjedi.github.io/haloweb/
+# Runs on every push to main that touches the firmware, and on demand (Actions tab → Run workflow).
+# One-time setup: Settings → Pages → Build and deployment → Source: "GitHub Actions".
+name: Web installer
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "include/**"
+      - "web/**"
+      - "tools/**"
+      - "installer/**"
+      - "platformio.ini"
+      - "partitions.csv"
+      - ".github/workflows/web-installer.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: pio-${{ runner.os }}-${{ hashFiles('platformio.ini') }}
+
+      - name: Install PlatformIO and esptool
+        run: pip install platformio "esptool==4.8.1"
+
+      - name: Build firmware
+        run: pio run -e esp32-s3-display
+
+      - name: Make the installer files
+        run: |
+          set -e
+          B=.pio/build/esp32-s3-display
+          APP0=$(find ~/.platformio/packages -name boot_app0.bin | head -n 1)
+          for f in "$B/bootloader.bin" "$B/partitions.bin" "$B/firmware.bin" "$APP0"; do
+            test -f "$f" || { echo "missing: $f"; exit 1; }
+          done
+          mkdir -p site
+          cp installer/* site/
+          # One image with bootloader, partition table, OTA boot data and the app (offsets from partitions.csv)
+          esptool.py --chip esp32s3 merge_bin -o site/emblem-full.bin --flash_size 16MB \
+            0x0 "$B/bootloader.bin" 0x8000 "$B/partitions.bin" 0xe000 "$APP0" 0x10000 "$B/firmware.bin"
+          # App only, for updates from the phone page (Settings → firmware update)
+          cp "$B/firmware.bin" site/emblem-update.bin
+          VER="$(git rev-parse --short HEAD) ($(date -u +%Y-%m-%d))"
+          sed -i "s/__VERSION__/$VER/g" site/manifest.json site/index.html
+          ls -la site
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
