@@ -1,0 +1,11 @@
+{
+  "name": "BMW emblem (kit edition)",
+  "version": "__VERSION__",
+  "new_install_prompt_erase": true,
+  "builds": [
+    {
+      "chipFamily": "ESP32-S3",
+      "parts": [{ "path": "emblem-kit-full.bin", "offset": 0 }]
+    }
+  ]
+}

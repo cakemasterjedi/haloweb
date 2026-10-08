@@ -166,6 +166,14 @@ inline void settingsDefaults(Settings &s) {
     s.lowVoltOn = 0;
     s.cutoffCV = 1200;  // 12.00 V (car battery via INA219)
     s.voltSource = VOLT_NONE;
+#ifdef KIT_DEFAULTS
+    // Ready-to-ship kit (INA219 pre-wired in the power module): battery
+    // protection on from the first start. Auto-off stays off (see above):
+    // on an always-on fuse it would leave the emblem off until BOOT is pressed.
+    s.voltSource = VOLT_INA219;
+    s.lowVoltOn = 1;
+    s.cutoffCV = 1220;  // 12.20 V
+#endif
     s.voltCal = 1000;
 
     s.cycleItems = (1u << MODE_ROUNDEL) | (1u << MODE_SPIN);

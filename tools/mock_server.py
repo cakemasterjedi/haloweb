@@ -215,7 +215,7 @@ class Handler(BaseHTTPRequestHandler):
         elif url.path == "/api/panel":
             state["panel"] = int(self.form().get("panel", 0))
             self.reply(200, "Restarting...", "text/plain")
-        elif url.path in ("/api/reboot", "/update", "/api/test", "/api/power/off"):
+        elif url.path in ("/api/reboot", "/update", "/api/test", "/api/power/off", "/api/factoryReset"):
             self.rfile.read(int(self.headers.get("Content-Length", 0)))
             self.reply(200, "Restarting...", "text/plain")
         else:

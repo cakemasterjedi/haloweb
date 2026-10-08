@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kit Edition Installer</title>
+<meta name="robots" content="noindex, nofollow">
+<script type="module" src="https://unpkg.com/esp-web-tools@10.0.1/dist/web/install-button.js?module"></script>
+<style>
+  :root { --bg: #f5f6f8; --card: #ffffff; --ink: #14171b; --ink2: #5b6570; --line: #dde1e6; --accent: #1c69d4; --accent-ink: #ffffff; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #0f1215; --card: #171b20; --ink: #e8ebee; --ink2: #9aa5b1; --line: #2a3139; --accent: #4a8ff0; --accent-ink: #0f1215; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 660px; margin: 0 auto; padding: 36px 16px 64px; }
+  .badge { width: 64px; height: 64px; border-radius: 50%; margin-bottom: 14px;
+           background: conic-gradient(#1c69d4 0 25%, #fff 0 50%, #1c69d4 0 75%, #fff 0); border: 7px solid #111; box-shadow: 0 0 0 2px #9aa5b1; }
+  h1 { font-size: 28px; line-height: 1.2; margin: 0 0 6px; }
+  h2 { font-size: 18px; margin: 0 0 10px; }
+  .sub { color: var(--ink2); margin: 0 0 22px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 20px; margin: 16px 0; }
+  ol { padding-left: 22px; margin: 0; } li { margin: 9px 0; }
+  .install { margin: 18px 0 6px; }
+  esp-web-install-button button[slot="activate"] {
+    background: var(--accent); color: var(--accent-ink); border: 0; border-radius: 10px;
+    padding: 14px 30px; font-size: 18px; font-weight: 650; cursor: pointer; }
+  .note { color: var(--ink2); font-size: 14px; }
+  .ver { color: var(--ink2); font-size: 13px; }
+  code { background: var(--line); padding: 1px 6px; border-radius: 5px; font-size: 0.92em; }
+  a { color: var(--accent); }
+  .warnbox { margin: 14px 0 0; padding: 11px 13px; border-radius: 10px; border: 1px solid #e0a53a; background: rgba(224,165,58,.12); font-size: 15px; }
+  .dl { display: inline-block; margin-top: 8px; padding: 9px 16px; border: 1px solid var(--accent); border-radius: 9px; text-decoration: none; font-weight: 600; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Kit edition</h1>
+  <p class="sub">Unlisted page for building ready-to-ship kits. Starts with the INA219 battery sensor and 12.2 V battery protection on. Chrome or Edge on a computer, USB-C data cable.</p>
+  <div class="card">
+    <div class="install">
+      <esp-web-install-button manifest="manifest-kit.json">
+        <button slot="activate">Install kit edition</button>
+        <span slot="unsupported">Open this page in Chrome or Edge on a computer.</span>
+        <span slot="not-allowed">Open this page from its https address.</span>
+      </esp-web-install-button>
+    </div>
+    <p class="ver">Firmware build __VERSION__</p>
+    <a class="dl" href="emblem-kit-update.bin" download>Download kit update file</a>
+    <p class="note">Factory reset before packing: hold BOOT for 10 seconds, or tap the Firmware heading on the Settings tab 7 times.</p>
+  </div>
+</main>
+</body>
+</html>

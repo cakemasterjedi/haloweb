@@ -1102,6 +1102,56 @@ static void handleSetup() {
     restartAt = millis() + 1500;
 }
 
+// Factory reset: settings back to the defaults, pictures and animations
+// erased, and the first-time set-up again (new Wi-Fi name and random
+// temporary password, shown on the screen). Only the calibrations stay,
+// because they belong to the hardware: the battery reading's calibration and
+// the motion sensor's level. Deliberately tucked away: hold the BOOT button
+// for 10 seconds, or the hidden button on the Settings tab.
+static void factoryReset(const char *how) {
+    const uint16_t cal = settings.voltCal;
+    const int16_t levelRef = settings.levelRef;
+    const int8_t levelSign = settings.levelSign;
+    for (int i = 0; i < IMAGE_SLOTS; i++) {
+        media().remove(imagePath(i));
+        media().remove(animPath(i));
+    }
+    media().remove(uploadPath());
+    settingsDefaults(settings);
+    settings.voltCal = cal;
+    settings.levelRef = levelRef;
+    settings.levelSign = levelSign;
+    firstTimeWifi();
+    saveSettings();
+    logf("Factory reset (%s): Wi-Fi \"%s\", temporary password %s\n", how, settings.apSsid, settings.apPass);
+    restartAt = millis() + 1500;
+}
+
+static void handleFactoryReset() {
+    if (server.arg("confirm") != "RESET") {
+        server.send(400, "text/plain", "Not confirmed.");
+        return;
+    }
+    factoryReset("control page");
+    server.send(200, "text/plain", "Reset. The emblem restarts and shows its new Wi-Fi name and temporary password.");
+}
+
+// Holding the BOOT button for 10 seconds while the emblem is running does a
+// factory reset (a short press does nothing while it's on).
+static void bootButtonTick(uint32_t now) {
+    static uint32_t downSince = 0;
+    static bool done = false;
+    if (digitalRead(0) == LOW) {
+        if (!downSince) downSince = now ? now : 1;
+        if (!done && now - downSince >= 10000) {
+            done = true;
+            factoryReset("BOOT button held");
+        }
+    } else {
+        downSince = 0;
+    }
+}
+
 static void handleSet() {
     if (setupBlocked()) return;
     long v;
@@ -1619,6 +1669,7 @@ static void setupWeb() {
         server.send(200, "text/plain", "Turning off. Press the BOOT button or power-cycle to wake it.");
         shutdownAt = millis() + 600;
     });
+    server.on("/api/factoryReset", HTTP_POST, handleFactoryReset);
     server.on("/api/reboot", HTTP_POST, [] {
         if (saveAt) saveSettings();  // don't lose a change made just before
         server.send(200, "text/plain", "Restarting...");
@@ -1746,6 +1797,7 @@ void setup() {
     delay(300);
     logf("\n=== Emblem starting (%s%s) ===\nFirmware build %s\n", resetReason, safeMode ? ", SAFE MODE" : "", FW_BUILD);
     if (!LittleFS.begin(true)) logf("LittleFS mount failed\n");
+    pinMode(0, INPUT_PULLUP);  // BOOT button: hold 10 s for a factory reset
 
     // Wi-Fi first: even if the display fails, the phone page stays reachable.
     uint32_t t0 = millis();
@@ -1917,6 +1969,7 @@ void loop() {
         staTick(now);
         slowCheck(t, "once-a-second checks");
     }
+    bootButtonTick(now);
     if (shutdownAt && int32_t(now - shutdownAt) >= 0) shutdownNow(SLEEP_OFF);
     if (saveAt && int32_t(now - saveAt) >= 0) saveSettings();
     if (restartAt && int32_t(now - restartAt) >= 0) ESP.restart();
