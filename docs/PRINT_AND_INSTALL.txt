@@ -50,7 +50,9 @@ Install
   3 Feed the wires through the grommets, push the pegs in (cable tab at 6 o'clock), press 30 s.
   4 Join the wires to the tray inside the lid. Let cure 24 h before washing.
 
-Firmware: install from https://cakemasterjedi.github.io/haloweb (Chrome/Edge, USB-C). Phone: Wi-Fi BMW-Emblem / emblem123.
+Firmware: install from https://cakemasterjedi.github.io/haloweb (Chrome/Edge, USB-C). 
+  Phone: first power-up shows its Wi-Fi (EMBLEM-xxxx) and a temporary password on the screen;
+  join it and choose your own password when the page asks.
   Power tab: voltage source Car battery (INA219), battery protection on, cutoff ~12.2 V, auto-off off.
 Finding an always-on fuse: lock the car, wait ~20 min, test which fuses are still live.
 
