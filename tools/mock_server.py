@@ -30,7 +30,7 @@ state = {
     "storage": "flash", "fsUsedKB": 0, "fsTotalKB": 12 * 1024, "animMax": ANIM_MAX,
     "panel": 0, "panels": ["18 MHz (recommended)", "30 MHz (Waveshare demo)", "12 MHz (lightest)"], "display": True,
     "startupAnim": 1, "powerMode": 0, "autoOffMin": 0, "showHours": 0, "showBrightness": 60,
-    "lowVoltOn": 0, "cutoff": 12.0, "voltSource": 0, "volts": None, "offIn": -1, "lowFor": 0,
+    "lowVoltOn": 0, "cutoff": 12.0, "voltSource": 0, "volts": None, "offIn": -1, "lowFor": 0, "chipTemp": 52.4, "heat": 0, "heatCap": 100,
     "cycleItems": 3, "cycleSec": 0, "cycling": False, "showMode": 0, "showSlot": 0, "animSpeed": 100,
     "bootSlot": 0, "fades": 1, "autoDim": 0, "nightBrightness": 35, "nightFrom": 19 * 60, "nightTo": 7 * 60,
     "night": False, "rtc": True, "clock": None, "imu": True, "motionReact": 0, "doubleTap": 0,

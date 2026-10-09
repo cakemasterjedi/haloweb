@@ -389,6 +389,7 @@
           <div class="muted" id="powerDetail"></div>
         </div>
       </div>
+      <p class="hint" id="heatInfo" style="margin-top:10px"></p>
       <button class="danger wide" style="margin-top:14px" id="offNow">Turn off now</button>
       <p class="hint">When off, it stays off until the <b>BOOT button on the board</b> is pressed (or its power is cut and restored, e.g. with a kill switch). It does <b>not</b> come back on by itself, except after a low-voltage shutdown.</p>
     </div>
@@ -747,7 +748,7 @@ async function poll() {
   }
   setTimeout(poll, tab === 'settings' && st && st.imu ? 1500 : tab === 'power' || (st && st.cycling) ? 3000 : 10000);
 }
-const LIVE_KEYS = ['volts', 'offIn', 'lowFor', 'slots', 'staIp', 'clock', 'night', 'showMode', 'showSlot', 'cycling', 'jolt', 'moving', 'boost', 'levelSet', 'resting', 'activeRule', 'imu', 'safeMode', 'uptime', 'resetReason'];
+const LIVE_KEYS = ['volts', 'offIn', 'lowFor', 'chipTemp', 'heat', 'heatCap', 'slots', 'staIp', 'clock', 'night', 'showMode', 'showSlot', 'cycling', 'jolt', 'moving', 'boost', 'levelSet', 'resting', 'activeRule', 'imu', 'safeMode', 'uptime', 'resetReason'];
 // Changed on the emblem itself (double-tap); taken over unless the user is changing them.
 const SELECTION_KEYS = ['mode', 'imageSlot'];
 let polledAt = Date.now();
@@ -902,7 +903,7 @@ function updateLive() {
   }
   $('levelNow').disabled = !st.levelSet;
   const item = previewItem();
-  $('heroMode').textContent = st.resting ? 'Screen off (parked)'
+  $('heroMode').textContent = st.heat === 2 ? 'Screen off (too hot, cooling down)' : st.resting ? 'Screen off (parked)'
     : (st.activeRule >= 0 ? 'Special date · ' : st.cycling ? 'Auto-cycle · ' : '') +
       (MODES[item.mode] ? designName(item.mode, item.slot) : '');
   $('welcomeOpts').classList.toggle('hidden', !st.welcomeOn);
@@ -1090,6 +1091,11 @@ function updatePowerStatus() {
   }
   $('powerStatus').textContent = status;
   $('powerDetail').textContent = detail;
+  const t = st.chipTemp;
+  $('heatInfo').innerHTML = t == null ? '' :
+    st.heat === 2 ? `<b>Heat guard: screen off to cool down</b> (chip ${Math.round(t)} °C). It comes back on by itself below 80 °C.` :
+    st.heat === 1 ? `<b>Heat guard: dimmed to ${st.heatCap}%</b> to keep it cool (chip ${Math.round(t)} °C).` :
+    `Heat guard: normal (chip ${Math.round(t)} °C). Above 75 °C it dims the screen, above 90 °C it turns the screen off until it cools.`;
 }
 
 function setupPower() {
