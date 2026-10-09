@@ -7,7 +7,8 @@ Parts
   (drilled option: G30_emblem_display_SLIM_BACK_PLATE_CENTER_HOLE.3mf instead)
 
 Print settings (ASA, enclosed printer)
-  0.2 mm layers (0.12 mm for a smoother crown), 4 walls, 5 top / 4 bottom layers, 40% gyroid infill
+  0.2 mm layers (0.12 mm for a smoother crown), 5 walls, 6 top / 5 bottom layers, 40% gyroid infill,
+  flow +2-5 % (thick, slightly over-filled walls are what make the print watertight)
   Ironing ON for top surfaces (housing + tab cap) — gives the rim and cap the same sheen
   NO BRIM, no supports: full bed contact on every part. Textured PEI or glue stick, bed 100-110 C,
   enclosure closed, no part cooling for the first 3 layers, slow first layer
@@ -21,7 +22,7 @@ Factory-look finish (optional, recommended)
 Hardware
   3" x 1/16" acrylic disc (lens) + clear LOCA     (not B-7000: it crazes acrylic)
   0.64 mm 3M VHB 5925 (cut with VHB_tape_template.svg at 100 %), adhesion promoter, isopropyl alcohol
-  Black neutral-cure silicone, silica gel pack
+  Black neutral-cure silicone, silica gel pack, conformal coating (MG Chemicals 422C or 419D)
   28 AWG silicone wire red + black (right peg), 30 AWG silicone wire x4 (left peg) — single wires, 2.7 mm peg holes
   12 V -> 5 V converter (3 A), INA219, fuse tap kit with MINI and ATO taps + 3 A fuses in both sizes, ring terminal
   Optional: 12 V kill switch, 5 A+ (inline rocker on a pigtail)
@@ -36,12 +37,15 @@ Assembly (display unit)
   1 Jig: drill two 5 mm holes 56 mm apart through a flat scrap board (stands in for the trunk lid).
   2 Thread the power pair down the right peg and the 4 sensor wires down the left (seen from behind the car).
   3 Plug into the 12-pin header + I2C port; route the wires flat between parts on the back of the board.
+    Conformal-coat the back of the board and both plugged connectors (mask USB-C, BOOT/RESET, keep off the glass).
   4 Plate on the jig (pegs in the holes). Silicone dab on each lug, housing down onto the lugs (tab pocket at 6 o'clock).
   5 Silica gel on the board. Display in from the front (tab into the pocket); it rests on the plate.
   6 Black silicone around the glass edge. Glue the tab cap on (silicone), tape lightly.
   7 Confirm the phone control page works.          8 Glue the 3" lens into the rim pocket with LOCA.
   9 Fill each peg around the wires with silicone.
   Once cured, the lens and silicone hold the display in the housing.
+ 10 After 24 h: water test. Test tape ring on a tile, water to 2 cm below the rim for 30 min, then a garden
+    hose for 2 min. No fog, silica gel dry. Fit fresh tape for the car.
 
 Install
   1 Remove the factory roundel; leave the two grommets in the peg holes. Check they sit flush.
@@ -49,6 +53,11 @@ Install
     lug gaps and the two tab corners so the ring is sealed all round.
   3 Feed the wires through the grommets, push the pegs in (cable tab at 6 o'clock), press 30 s.
   4 Join the wires to the tray inside the lid. Let cure 24 h before washing.
+
+Washing: hand, rain, touchless/brush car washes fine. Pressure washer: 25 or 40 degree tip, 30 cm (1 ft)+
+  away, keep it moving, not on the rim edge, never a 0 degree tip. Sealed to IP67 practice, not lab-certified.
+Heat: the board's ESP32-S3R8 is rated to 65 C air. The firmware's heat guard dims the screen from 75 C
+  (chip) and turns it off above 90 C until it cools to 80 C.
 
 Firmware: install from https://cakemasterjedi.github.io/haloweb (Chrome/Edge, USB-C). 
   Phone: first power-up shows its Wi-Fi (EMBLEM-xxxx) and a temporary password on the screen;
