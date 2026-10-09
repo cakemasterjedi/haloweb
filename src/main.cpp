@@ -580,6 +580,41 @@ static void saveSettings() {
     resyncDisplay();
 }
 
+// Heat record, kept in flash: the hottest chip temperature seen (and when, if
+// the clock was set), and how long the heat guard has dimmed or blanked the
+// screen in total. Saved at most every 10 minutes, and before sleeping, to
+// spare the flash. Cleared by a factory reset or the Reset link.
+static const uint32_t HEAT_SAVE_MS = 10 * 60 * 1000UL;
+static float heatMax = NAN;        // all-time hottest, °C
+static uint32_t heatMaxAt = 0;     // when (Unix time), 0 = clock wasn't set
+static float heatMaxBoot = NAN;    // hottest since this start-up
+static uint32_t heatDimSec = 0, heatDarkSec = 0;
+static bool heatDirty = false;
+static uint32_t heatSavedAt = 0;
+
+static void loadHeatRecord() {
+    heatMax = prefs.getFloat("hmax", NAN);
+    heatMaxAt = prefs.getUInt("hmaxT", 0);
+    heatDimSec = prefs.getUInt("hdim", 0);
+    heatDarkSec = prefs.getUInt("hdark", 0);
+}
+
+static void saveHeatRecord() {
+    if (!isnan(heatMax)) prefs.putFloat("hmax", heatMax);
+    prefs.putUInt("hmaxT", heatMaxAt);
+    prefs.putUInt("hdim", heatDimSec);
+    prefs.putUInt("hdark", heatDarkSec);
+    heatDirty = false;
+    heatSavedAt = millis();
+}
+
+static void clearHeatRecord() {
+    for (const char *k : {"hmax", "hmaxT", "hdim", "hdark"}) prefs.remove(k);
+    heatMax = heatMaxBoot = NAN;
+    heatMaxAt = heatDimSec = heatDarkSec = 0;
+    heatDirty = false;
+}
+
 // ---------------------------------------------------------------------------
 // Power: battery voltage, auto-off, car show mode, deep sleep
 
@@ -628,6 +663,7 @@ static int64_t offInMs(uint32_t now) {
 // the BOOT button, a power cycle, or (after a low-voltage shutdown) every
 // 10 minutes to see whether the battery has recovered.
 static void enterSleep(uint8_t reason) {
+    if (heatDirty) saveHeatRecord();
     logf("Sleeping (%s)\n", reason == SLEEP_LOWV ? "low voltage" : "turned off");
     Serial.flush();
     sleepReason = reason;
@@ -667,6 +703,12 @@ static void heatTick() {
     const float t = temperatureRead();
     if (isnan(t) || t < -40 || t > 150) return;  // no sensor / bad reading
     chipTemp = isnan(chipTemp) ? t : chipTemp * 0.8f + t * 0.2f;
+    if (isnan(heatMaxBoot) || chipTemp > heatMaxBoot) heatMaxBoot = chipTemp;
+    if (isnan(heatMax) || chipTemp > heatMax + 0.5f) {
+        heatMax = chipTemp;
+        heatMaxAt = clockValid() ? uint32_t(time(nullptr)) : 0;
+        heatDirty = true;
+    }
     uint8_t level, cap;
     if (heatLevel == HEAT_DARK ? chipTemp >= HEAT_ON_C : chipTemp >= HEAT_OFF_C) {
         level = HEAT_DARK;
@@ -685,6 +727,9 @@ static void heatTick() {
     heatLevel = level;
     heatCap = cap;
     if (changed) applyBrightness();
+    if (level == HEAT_DIMMED) heatDimSec++, heatDirty = true;
+    if (level == HEAT_DARK) heatDarkSec++, heatDirty = true;
+    if (heatDirty && millis() - heatSavedAt >= HEAT_SAVE_MS) saveHeatRecord();
 }
 
 // Called once a second.
@@ -1021,6 +1066,11 @@ static void sendState() {
     j += ",\"chipTemp\":" + (isnan(chipTemp) ? String("null") : String(chipTemp, 1));
     j += ",\"heat\":" + String(heatLevel);
     j += ",\"heatCap\":" + String(heatCap);
+    j += ",\"heatMax\":" + (isnan(heatMax) ? String("null") : String(heatMax, 1));
+    j += ",\"heatMaxAt\":" + String(heatMaxAt);
+    j += ",\"heatMaxBoot\":" + (isnan(heatMaxBoot) ? String("null") : String(heatMaxBoot, 1));
+    j += ",\"heatDimMin\":" + String(heatDimSec / 60);
+    j += ",\"heatDarkMin\":" + String(heatDarkSec / 60);
     // Designs: auto-cycle, animations, start-up, transitions
     j += ",\"cycleItems\":" + String(settings.cycleItems);
     j += ",\"cycleSec\":" + String(settings.cycleSec);
@@ -1160,6 +1210,7 @@ static void factoryReset(const char *how) {
         media().remove(animPath(i));
     }
     media().remove(uploadPath());
+    clearHeatRecord();
     settingsDefaults(settings);
     settings.voltCal = cal;
     settings.levelRef = levelRef;
@@ -1713,6 +1764,11 @@ static void setupWeb() {
         shutdownAt = millis() + 600;
     });
     server.on("/api/factoryReset", HTTP_POST, handleFactoryReset);
+    server.on("/api/heatReset", HTTP_POST, [] {
+        if (setupBlocked()) return;
+        clearHeatRecord();
+        server.send(200, "text/plain", "Temperature record cleared.");
+    });
     server.on("/api/reboot", HTTP_POST, [] {
         if (saveAt) saveSettings();  // don't lose a change made just before
         server.send(200, "text/plain", "Restarting...");
@@ -1826,6 +1882,7 @@ void setup() {
     gpio_deep_sleep_hold_dis();
 #endif
     loadSettings();
+    loadHeatRecord();
     checkLowVoltageWake();  // may go straight back to sleep
     const esp_reset_reason_t why = esp_reset_reason();
     const bool crashed = why == ESP_RST_PANIC || why == ESP_RST_INT_WDT || why == ESP_RST_TASK_WDT ||
