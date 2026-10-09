@@ -97,6 +97,20 @@ static uint32_t cycleWaitLoops = UINT32_MAX;
 static float motionFactor = 1;     // effects speed-up from acceleration
 static bool nightNow = false;
 static float brightNow = -1;       // backlight level being shown, %
+
+// Heat guard. The ESP32-S3R8 on this board is rated to 65 °C ambient and the
+// LCD panel (HD276001C40 class) to 70 °C operating / 80 °C storage, and a
+// badge in summer sun gets hotter than that. The chip's own temperature sensor
+// reads about 10-15 °C above the air around it, so: from HEAT_DIM_C the
+// backlight (the main heat source) is capped, down to HEAT_MIN_PCT at
+// HEAT_FULL_C; from HEAT_OFF_C the screen goes dark until the chip has cooled
+// to HEAT_ON_C. Wi-Fi and the control page keep working throughout.
+static const float HEAT_DIM_C = 70, HEAT_FULL_C = 80, HEAT_OFF_C = 85, HEAT_ON_C = 75;
+static const uint8_t HEAT_MIN_PCT = 30;
+enum HeatLevel : uint8_t { HEAT_OK = 0, HEAT_DIMMED, HEAT_DARK };
+static float chipTemp = NAN;       // smoothed chip temperature, °C
+static uint8_t heatLevel = HEAT_OK;
+static uint8_t heatCap = 100;      // brightness allowed by the heat guard, %
 static volatile bool ntpSynced = false;
 static float uprightTilt = NAN;    // motion sensor set-up, step 1
 
@@ -133,8 +147,9 @@ static void *psramAlloc(size_t n) {
 
 // Car show mode has its own brightness; night dimming overrides both.
 static uint8_t effectiveBrightness() {
-    if (nightNow) return settings.nightBrightness;
-    return settings.powerMode == POWER_CAR_SHOW ? settings.showBrightness : settings.brightness;
+    const uint8_t b = nightNow ? settings.nightBrightness
+                    : settings.powerMode == POWER_CAR_SHOW ? settings.showBrightness : settings.brightness;
+    return min(b, heatCap);
 }
 
 // Night by the emblem's clock (local time from the phone's time zone).
@@ -168,7 +183,7 @@ static void applyBrightness() {
 
 static void rampBrightness() {
     if (!displayOk || brightNow < 0) return;
-    const float target = resting ? 0 : constrain(effectiveBrightness(), 5, 100);
+    const float target = (resting || heatLevel == HEAT_DARK) ? 0 : constrain(effectiveBrightness(), 5, 100);
     const float diff = target - brightNow;
     if (diff == 0) return;
     const float step = fmaxf(0.5f, fabsf(diff) * 0.08f);
@@ -566,6 +581,41 @@ static void saveSettings() {
     resyncDisplay();
 }
 
+// Heat record, kept in flash: the hottest chip temperature seen (and when, if
+// the clock was set), and how long the heat guard has dimmed or blanked the
+// screen in total. Saved at most every 10 minutes, and before sleeping, to
+// spare the flash. Cleared by a factory reset or the Reset link.
+static const uint32_t HEAT_SAVE_MS = 10 * 60 * 1000UL;
+static float heatMax = NAN;        // all-time hottest, °C
+static uint32_t heatMaxAt = 0;     // when (Unix time), 0 = clock wasn't set
+static float heatMaxBoot = NAN;    // hottest since this start-up
+static uint32_t heatDimSec = 0, heatDarkSec = 0;
+static bool heatDirty = false;
+static uint32_t heatSavedAt = 0;
+
+static void loadHeatRecord() {
+    heatMax = prefs.getFloat("hmax", NAN);
+    heatMaxAt = prefs.getUInt("hmaxT", 0);
+    heatDimSec = prefs.getUInt("hdim", 0);
+    heatDarkSec = prefs.getUInt("hdark", 0);
+}
+
+static void saveHeatRecord() {
+    if (!isnan(heatMax)) prefs.putFloat("hmax", heatMax);
+    prefs.putUInt("hmaxT", heatMaxAt);
+    prefs.putUInt("hdim", heatDimSec);
+    prefs.putUInt("hdark", heatDarkSec);
+    heatDirty = false;
+    heatSavedAt = millis();
+}
+
+static void clearHeatRecord() {
+    for (const char *k : {"hmax", "hmaxT", "hdim", "hdark"}) prefs.remove(k);
+    heatMax = heatMaxBoot = NAN;
+    heatMaxAt = heatDimSec = heatDarkSec = 0;
+    heatDirty = false;
+}
+
 // ---------------------------------------------------------------------------
 // Power: battery voltage, auto-off, car show mode, deep sleep
 
@@ -614,6 +664,7 @@ static int64_t offInMs(uint32_t now) {
 // the BOOT button, a power cycle, or (after a low-voltage shutdown) every
 // 10 minutes to see whether the battery has recovered.
 static void enterSleep(uint8_t reason) {
+    if (heatDirty) saveHeatRecord();
     logf("Sleeping (%s)\n", reason == SLEEP_LOWV ? "low voltage" : "turned off");
     Serial.flush();
     sleepReason = reason;
@@ -648,8 +699,43 @@ static void shutdownNow(uint8_t reason) {
     enterSleep(reason);
 }
 
+// Called once a second from powerTick.
+static void heatTick() {
+    const float t = temperatureRead();
+    if (isnan(t) || t < -40 || t > 150) return;  // no sensor / bad reading
+    chipTemp = isnan(chipTemp) ? t : chipTemp * 0.8f + t * 0.2f;
+    if (isnan(heatMaxBoot) || chipTemp > heatMaxBoot) heatMaxBoot = chipTemp;
+    if (isnan(heatMax) || chipTemp > heatMax + 0.5f) {
+        heatMax = chipTemp;
+        heatMaxAt = clockValid() ? uint32_t(time(nullptr)) : 0;
+        heatDirty = true;
+    }
+    uint8_t level, cap;
+    if (heatLevel == HEAT_DARK ? chipTemp >= HEAT_ON_C : chipTemp >= HEAT_OFF_C) {
+        level = HEAT_DARK;
+        cap = HEAT_MIN_PCT;
+    } else if (chipTemp > HEAT_DIM_C) {
+        level = HEAT_DIMMED;
+        const float f = (fminf(chipTemp, HEAT_FULL_C) - HEAT_DIM_C) / (HEAT_FULL_C - HEAT_DIM_C);
+        cap = uint8_t(100 - (100 - HEAT_MIN_PCT) * f + 0.5f);
+    } else {
+        level = HEAT_OK;
+        cap = 100;
+    }
+    if (level != heatLevel)
+        logf("Heat guard: %s (chip %.0f C)\n", level == HEAT_DARK ? "screen off to cool down" : level == HEAT_DIMMED ? "dimming" : "normal", chipTemp);
+    const bool changed = level != heatLevel || cap != heatCap;
+    heatLevel = level;
+    heatCap = cap;
+    if (changed) applyBrightness();
+    if (level == HEAT_DIMMED) heatDimSec++, heatDirty = true;
+    if (level == HEAT_DARK) heatDarkSec++, heatDirty = true;
+    if (heatDirty && millis() - heatSavedAt >= HEAT_SAVE_MS) saveHeatRecord();
+}
+
 // Called once a second.
 static void powerTick(uint32_t now) {
+    heatTick();
     float v = readVolts();
     volts = isnan(v) ? NAN : (isnan(volts) ? v : volts * 0.7f + v * 0.3f);
 
@@ -978,6 +1064,14 @@ static void sendState() {
     j += ",\"volts\":" + (isnan(volts) ? String("null") : String(volts, 2));
     j += ",\"offIn\":" + String(offIn < 0 ? -1 : long(offIn / 1000));
     j += ",\"lowFor\":" + String(lowSince ? long((now - lowSince) / 1000) : 0L);
+    j += ",\"chipTemp\":" + (isnan(chipTemp) ? String("null") : String(chipTemp, 1));
+    j += ",\"heat\":" + String(heatLevel);
+    j += ",\"heatCap\":" + String(heatCap);
+    j += ",\"heatMax\":" + (isnan(heatMax) ? String("null") : String(heatMax, 1));
+    j += ",\"heatMaxAt\":" + String(heatMaxAt);
+    j += ",\"heatMaxBoot\":" + (isnan(heatMaxBoot) ? String("null") : String(heatMaxBoot, 1));
+    j += ",\"heatDimMin\":" + String(heatDimSec / 60);
+    j += ",\"heatDarkMin\":" + String(heatDarkSec / 60);
     // Designs: auto-cycle, animations, start-up, transitions
     j += ",\"cycleItems\":" + String(settings.cycleItems);
     j += ",\"cycleSec\":" + String(settings.cycleSec);
@@ -1117,6 +1211,7 @@ static void factoryReset(const char *how) {
         media().remove(animPath(i));
     }
     media().remove(uploadPath());
+    clearHeatRecord();
     settingsDefaults(settings);
     settings.voltCal = cal;
     settings.levelRef = levelRef;
@@ -1670,6 +1765,11 @@ static void setupWeb() {
         shutdownAt = millis() + 600;
     });
     server.on("/api/factoryReset", HTTP_POST, handleFactoryReset);
+    server.on("/api/heatReset", HTTP_POST, [] {
+        if (setupBlocked()) return;
+        clearHeatRecord();
+        server.send(200, "text/plain", "Temperature record cleared.");
+    });
     server.on("/api/reboot", HTTP_POST, [] {
         if (saveAt) saveSettings();  // don't lose a change made just before
         server.send(200, "text/plain", "Restarting...");
@@ -1783,6 +1883,7 @@ void setup() {
     gpio_deep_sleep_hold_dis();
 #endif
     loadSettings();
+    loadHeatRecord();
     checkLowVoltageWake();  // may go straight back to sleep
     const esp_reset_reason_t why = esp_reset_reason();
     const bool crashed = why == ESP_RST_PANIC || why == ESP_RST_INT_WDT || why == ESP_RST_TASK_WDT ||
@@ -1907,7 +2008,7 @@ void loop() {
         lastResync = now;
         resyncDisplay();
     }
-    if (displayOk && now - lastFrame >= FRAME_MS && !(resting && brightNow <= 0)) {
+    if (displayOk && now - lastFrame >= FRAME_MS && !((resting || heatLevel == HEAT_DARK) && brightNow <= 0)) {
         lastFrame = now;
         rampBrightness();
         // Start-up animation frame rate, for the log.

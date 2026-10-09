@@ -1,23 +1,24 @@
 // =====================================================================================
 //  No-drill trunk-lid tray for the emblem display electronics
-//  Holds: DROK 12V->5V 3A buck converter (51 x 25 x 21 mm incl. feet) + INA219 (GY-219, 25 x 22 mm)
+//  Holds: YRDZXG 12/24V->5V 5A 25W buck converter (body about 46 x 32 x 18 mm, 61 mm over the
+//  mounting ears) + INA219 (GY-219, 25 x 22 mm)
 //  Mounts with 3M VHB on the flat back, and/or zip ties around the existing trunk-lid wiring harness.
 //  Units: mm. Print flat, back down, no supports.
 // =====================================================================================
 
 /* [Tray] */
-plate_l = 110;
-plate_w = 40;
+plate_l = 118;
+plate_w = 46;
 plate_t = 3;
 corner_r = 5;
 
 /* [Buck converter] */
-// Footprint of the converter's feet (length x width)
-conv_l = 51;
-conv_w = 25;
+// Footprint of the converter including its mounting ears (length x width)
+conv_l = 61;
+conv_w = 32;
 // Clearance around the converter footprint
 conv_clear = 0.8;
-// Depth of the locating pocket for the converter feet
+// Depth of the locating pocket for the converter's base and ears
 conv_pocket = 1.2;
 // Centre of the converter along the tray
 conv_x = -20;
@@ -33,7 +34,7 @@ ina_wall_h = 1.6;
 ina_wall_t = 1.6;
 // Width of the wire gaps in the short walls
 ina_gap = 10;
-ina_x = 30;
+ina_x = 32;
 
 /* [Zip ties] */
 // Zip-tie width + clearance
@@ -72,7 +73,7 @@ module tray() {
                 translate([-(IPL / 2 + ina_wall_t + 1), -ina_gap / 2, -1]) cube([IPL + 2 * ina_wall_t + 2, ina_gap, ina_wall_h + 2]);
             }
         }
-        // locating pocket for the converter feet
+        // locating pocket for the converter's base and ears
         translate([conv_x - CPL / 2, -CPW / 2, plate_t - conv_pocket]) cube([CPL, CPW, conv_pocket + 1]);
         // two straps over the converter body
         for (dx = [-strap_spacing / 2, strap_spacing / 2]) for (sy = [-1, 1])
