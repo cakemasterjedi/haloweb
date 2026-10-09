@@ -24,7 +24,7 @@ Hardware
   0.64 mm 3M VHB 5925 (cut with VHB_tape_template.svg at 100 %), adhesion promoter, isopropyl alcohol
   Black neutral-cure silicone, silica gel pack, conformal coating (MG Chemicals 422C or 419D)
   28 AWG silicone wire red + black (right peg), 30 AWG silicone wire x4 (left peg) — single wires, 2.7 mm peg holes
-  12 V -> 5 V converter (3 A), INA219, fuse tap kit with MINI and ATO taps + 3 A fuses in both sizes, ring terminal
+  12 V -> 5 V converter (YRDZXG 12/24 V -> 5 V 5 A 25 W), INA219, fuse tap kit with MINI and ATO taps + 3 A fuses in both sizes, ring terminal
   Optional: 12 V kill switch, 5 A+ (inline rocker on a pigtail)
 
 Wiring
