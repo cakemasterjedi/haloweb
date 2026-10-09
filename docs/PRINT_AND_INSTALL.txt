@@ -56,8 +56,8 @@ Install
 
 Washing: hand, rain, touchless/brush car washes fine. Pressure washer: 25 or 40 degree tip, 30 cm (1 ft)+
   away, keep it moving, not on the rim edge, never a 0 degree tip. Sealed to IP67 practice, not lab-certified.
-Heat: the board's ESP32-S3R8 is rated to 65 C air. The firmware's heat guard dims the screen from 75 C
-  (chip) and turns it off above 90 C until it cools to 80 C.
+Heat: the board's ESP32-S3R8 is rated to 65 C air and the LCD to 70 C (80 C storage). The firmware's heat
+  guard dims the screen from 70 C (chip) and turns it off above 85 C until it cools to 75 C.
 
 Firmware: install from https://cakemasterjedi.github.io/haloweb (Chrome/Edge, USB-C). 
   Phone: first power-up shows its Wi-Fi (EMBLEM-xxxx) and a temporary password on the screen;

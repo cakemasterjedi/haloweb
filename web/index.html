@@ -1094,9 +1094,9 @@ function updatePowerStatus() {
   $('powerDetail').textContent = detail;
   const t = st.chipTemp;
   $('heatInfo').innerHTML = t == null ? '' :
-    st.heat === 2 ? `<b>Heat guard: screen off to cool down</b> (chip ${Math.round(t)} °C). It comes back on by itself below 80 °C.` :
+    st.heat === 2 ? `<b>Heat guard: screen off to cool down</b> (chip ${Math.round(t)} °C). It comes back on by itself below 75 °C.` :
     st.heat === 1 ? `<b>Heat guard: dimmed to ${st.heatCap}%</b> to keep it cool (chip ${Math.round(t)} °C).` :
-    `Heat guard: normal (chip ${Math.round(t)} °C). Above 75 °C it dims the screen, above 90 °C it turns the screen off until it cools.`;
+    `Heat guard: normal (chip ${Math.round(t)} °C). Above 70 °C it dims the screen, above 85 °C it turns the screen off until it cools.`;
   const rec = $('heatRecord');
   rec.classList.toggle('hidden', st.heatMax == null);
   if (st.heatMax != null) {

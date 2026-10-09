@@ -98,13 +98,14 @@ static float motionFactor = 1;     // effects speed-up from acceleration
 static bool nightNow = false;
 static float brightNow = -1;       // backlight level being shown, %
 
-// Heat guard. The ESP32-S3R8 on this board is rated to 65 °C ambient, and a
+// Heat guard. The ESP32-S3R8 on this board is rated to 65 °C ambient and the
+// LCD panel (HD276001C40 class) to 70 °C operating / 80 °C storage, and a
 // badge in summer sun gets hotter than that. The chip's own temperature sensor
 // reads about 10-15 °C above the air around it, so: from HEAT_DIM_C the
 // backlight (the main heat source) is capped, down to HEAT_MIN_PCT at
 // HEAT_FULL_C; from HEAT_OFF_C the screen goes dark until the chip has cooled
 // to HEAT_ON_C. Wi-Fi and the control page keep working throughout.
-static const float HEAT_DIM_C = 75, HEAT_FULL_C = 85, HEAT_OFF_C = 90, HEAT_ON_C = 80;
+static const float HEAT_DIM_C = 70, HEAT_FULL_C = 80, HEAT_OFF_C = 85, HEAT_ON_C = 75;
 static const uint8_t HEAT_MIN_PCT = 30;
 enum HeatLevel : uint8_t { HEAT_OK = 0, HEAT_DIMMED, HEAT_DARK };
 static float chipTemp = NAN;       // smoothed chip temperature, °C
