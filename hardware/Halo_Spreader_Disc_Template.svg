@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="70mm" height="70mm" viewBox="-35 -35 70 70" font-family="Inter, sans-serif">
+<path d="M 25,0 A 25,25 0 1,0 -25,0 A 25,25 0 1,0 25,0 Z M 8,0 A 8,8 0 1,1 -8,0 A 8,8 0 1,1 8,0 Z" fill="#cfd5dc" fill-rule="evenodd" stroke="#10151d" stroke-width="0.3"/>
+<line x1="-20" y1="-14" x2="20" y2="-14" stroke="#555" stroke-width="0.3"/><line x1="-20" y1="-15" x2="-20" y2="-13" stroke="#555" stroke-width="0.3"/><line x1="20" y1="-15" x2="20" y2="-13" stroke="#555" stroke-width="0.3"/>
+<text x="0" y="-16" font-size="2.4" text-anchor="middle" fill="#555">40 mm check</text>
+<text x="0" y="14" font-size="2.6" font-weight="700" text-anchor="middle">Ø 50 mm, hole Ø 16 mm</text>
+<line x1="-1.5" y1="0" x2="1.5" y2="0" stroke="#000" stroke-width="0.2"/><line x1="0" y1="-1.5" x2="0" y2="1.5" stroke="#000" stroke-width="0.2"/>
+</svg>

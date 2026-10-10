@@ -1,65 +1,69 @@
-G30 TRUNK EMBLEM DISPLAY — PRINT & INSTALL NOTES  (slim, closed back plate with pegs, no drilling)
+G30 TRUNK EMBLEM DISPLAY — PRINT & INSTALL NOTES  (88 mm housing, display loads from the back, one 16 mm hole)
 =========================================================================================
 Parts
-  G30_emblem_display_SLIM_HOUSING.3mf     print BACK-DOWN (as oriented)
-  G30_emblem_display_SLIM_TAB_CAP.3mf     print FACE-UP (as oriented) so it matches the housing's top finish
-  G30_emblem_display_SLIM_BACK_PLATE.3mf  print FLAT SIDE DOWN, pegs up (as oriented)
-  (drilled option: G30_emblem_display_SLIM_BACK_PLATE_CENTER_HOLE.3mf instead)
+  Halo_88_HOUSING.3mf               print BACK-DOWN (as oriented)
+  Halo_88_BACK_PLATE.3mf            print FLAT SIDE DOWN, pegs up (as oriented)
+  Halo_88_BACK_PLATE_SPREADER.3mf   instead of the plain plate if you fit the aluminium heat spreader (guide Appendix A)
+  Generator: hardware/source/halo_housing.py (python3 halo_housing.py; needs numpy + scikit-image)
 
 Print settings (ASA, enclosed printer)
-  0.2 mm layers (0.12 mm for a smoother crown), 5 walls, 6 top / 5 bottom layers, 40% gyroid infill,
+  0.2 mm layers, 5 walls, 6 top / 5 bottom layers, 40% gyroid infill,
   flow +2-5 % (thick, slightly over-filled walls are what make the print watertight)
-  Ironing ON for top surfaces (housing + tab cap) — gives the rim and cap the same sheen
-  NO BRIM, no supports: full bed contact on every part. Textured PEI or glue stick, bed 100-110 C,
-  enclosure closed, no part cooling for the first 3 layers, slow first layer
-  Back plate: 3 walls, 100% infill, slow outer walls for the pegs, cool on the bed so it stays flat
-  Test-fit in PLA first
+  Clean walls: outer wall ~40 mm/s, inner walls first, no part cooling for 3 layers then 10-20 %, dry filament.
+  NO BRIM, no supports: the bottom edge is a 45 deg bevel and the board-pocket roof is a 45 deg slope.
+  Textured PEI or glue stick, bed 100-110 C, enclosure closed.
+  Back plate: 3 walls, 100% infill, cool on the bed so it stays flat
+  Test-fit in PLA first: display in from the back until the glass touches the front lip, plate flush with the base.
 
-Factory-look finish (optional, recommended)
+Factory-look finish (optional)
   Wet-sand 400 -> 800 -> 1500, plastic adhesion promoter, filler primer, gloss black, 2K clear.
-  Paint the housing and tab cap together (cap taped in place) so the sheen matches.
+  Keep paint out of the lens pocket and off the base where the tape goes.
 
 Hardware
-  3" x 1/16" acrylic disc (lens) + clear LOCA     (not B-7000: it crazes acrylic)
-  0.64 mm 3M VHB 5925 (cut with VHB_tape_template.svg at 100 %), adhesion promoter, isopropyl alcohol
+  3" x 1/16" (76.2 x 1.5 mm) acrylic disc (lens, flush in a 1.5 mm pocket) + clear LOCA  (not B-7000: it crazes acrylic)
+  0.64 mm 3M VHB 5925 (one continuous ring, 68-83.6 mm, cut with VHB_tape_template.svg at 100 %),
+    adhesion promoter, isopropyl alcohol
   Black neutral-cure silicone, silica gel pack, conformal coating (MG Chemicals 422C or 419D)
-  28 AWG silicone wire red + black (right peg), 30 AWG silicone wire x4 (left peg) — single wires, 2.7 mm peg holes
+  28 AWG silicone wire red + black, 30 AWG silicone wire x4 (all six through the centre hole)
+  16 mm (5/8") step drill, 5/8" rubber grommet, touch-up paint
   12 V -> 5 V converter (YRDZXG 12/24 V -> 5 V 5 A 25 W), INA219, fuse tap kit with MINI and ATO taps + 3 A fuses in both sizes, ring terminal
   Optional: 12 V kill switch, 5 A+ (inline rocker on a pigtail)
+  Optional heat spreader: 0.016" (0.4 mm) aluminium sheet (50 mm disc, 16 mm hole; Halo_Spreader_Disc_Template_1to1.pdf),
+    soft insulating thermal pads 0.5-1.5 mm (3-6 W/mK), Kapton tape, 1.5 mm pad ring for the paint side
 
 Wiring
   ALWAYS-ON fuse -> Mini or ATO fuse tap to match it (3 A) -> [kill switch] -> INA219 VIN+ ; VIN- -> converter IN+ ; converter IN- -> chassis ground
-  Converter OUT+ -> board 12-pin pin 2 (5 V);  OUT- -> pin 1 (GND)         [right peg]
-  INA219 VCC/GND/SDA/SCL -> board I2C port 3V3 / GND / GPIO15 / GPIO7      [left peg]
-  Never feed 12 V to the board. Don't ground through the trunk skin.
+  Converter OUT+ -> board 12-pin pin 2 (5 V);  OUT- -> pin 1 (GND)
+  INA219 VCC/GND/SDA/SCL -> board I2C port 3V3 / GND / GPIO15 / GPIO7
+  All six display wires go through the 16 mm centre hole. Never feed 12 V to the board. Don't ground through the trunk skin.
 
 Assembly (display unit)
-  1 Jig: drill two 5 mm holes 56 mm apart through a flat scrap board (stands in for the trunk lid).
-  2 Thread the power pair down the right peg and the 4 sensor wires down the left (seen from behind the car).
-  3 Plug into the 12-pin header + I2C port; route the wires flat between parts on the back of the board.
-    Conformal-coat the back of the board and both plugged connectors (mask USB-C, BOOT/RESET, keep off the glass).
-  4 Plate on the jig (pegs in the holes). Silicone dab on each lug, housing down onto the lugs (tab pocket at 6 o'clock).
-  5 Silica gel on the board. Display in from the front (tab into the pocket); it rests on the plate.
-  6 Black silicone around the glass edge. Glue the tab cap on (silicone), tape lightly.
-  7 Confirm the phone control page works.          8 Glue the 3" lens into the rim pocket with LOCA.
-  9 Fill each peg around the wires with silicone.
-  Once cured, the lens and silicone hold the display in the housing.
- 10 After 24 h: water test. Test tape ring on a tile, water to 2 cm below the rim for 30 min, then a garden
+  1 Make the cables; plug into the 12-pin header + I2C port; route the wires flat to the middle of the board.
+  2 Conformal-coat the back of the board and both plugged connectors (mask USB-C, BOOT/RESET, keep off the glass).
+  3 Optional: thermal pads on the hot parts + aluminium disc in the SPREADER plate (guide Appendix A).
+  4 Display in FROM THE BACK, tab at 6 o'clock, until the glass touches the front lip. Ribbon loop into its pocket.
+    Don't force it: find what catches and trim.
+  5 Wires through the plate's centre hole; plate into the base (pegs out). It rests on the brass studs, flush with the base.
+  6 Silicone around the plate edge and around the wires in the centre hole. 24 h cure.
+  7 Confirm the phone control page works.
+  8 Silicone the glass edge from the front. Lens into the 1.5 mm pocket with a thin LOCA layer, flush. Seal the lens edge.
+  9 After 24 h: water test. Test tape ring on a tile, water to 2 cm below the rim for 30 min, then a garden
     hose for 2 min. No fog, silica gel dry. Fit fresh tape for the car.
 
 Install
-  1 Remove the factory roundel; leave the two grommets in the peg holes. Check they sit flush.
-  2 Clean the paint with IPA, adhesion promoter. Tape pieces on the rim around the lugs; silicone in the
-    lug gaps and the two tab corners so the ring is sealed all round.
-  3 Feed the wires through the grommets, push the pegs in (cable tab at 6 o'clock), press 30 s.
-  4 Join the wires to the tray inside the lid. Let cure 24 h before washing.
+  1 Remove the factory roundel; leave the two grommets in the peg holes (the plate's pegs locate in them). Check they sit flush.
+  2 Drill 16 mm at the exact centre between the peg holes (check behind the panel first). Deburr, paint the edge, fit the grommet.
+  3 Clean the paint with IPA, adhesion promoter. One continuous VHB ring on the base (covers the housing base and plate edge).
+  4 Wires through the grommet (seal with silicone), pegs into the factory holes, cable tab at 6 o'clock, press 30 s.
+  5 Join the wires to the tray inside the lid. Let cure 24 h before washing.
 
 Washing: hand, rain, touchless/brush car washes fine. Pressure washer: 25 or 40 degree tip, 30 cm (1 ft)+
   away, keep it moving, not on the rim edge, never a 0 degree tip. Sealed to IP67 practice, not lab-certified.
 Heat: the board's ESP32-S3R8 is rated to 65 C air and the LCD to 70 C (80 C storage). The firmware's heat
-  guard dims the screen from 70 C (chip) and turns it off above 85 C until it cools to 75 C.
+  guard dims the screen from 70 C (chip) and turns it off above 85 C until it cools to 75 C. The optional
+  aluminium spreader + thermal pads move the board's heat into the trunk lid.
 
-Firmware: install from https://cakemasterjedi.github.io/haloweb (Chrome/Edge, USB-C). 
+Firmware: install from https://cakemasterjedi.github.io/haloweb (Chrome/Edge, USB-C).
   Phone: first power-up shows its Wi-Fi (EMBLEM-xxxx) and a temporary password on the screen;
   join it and choose your own password when the page asks.
   Power tab: voltage source Car battery (INA219), battery protection on, cutoff ~12.2 V.
@@ -67,4 +71,5 @@ Firmware: install from https://cakemasterjedi.github.io/haloweb (Chrome/Edge, US
   (sealed inside the housing) or a kill switch cuts and restores its power.
 Finding an always-on fuse: lock the car, wait ~20 min, test which fuses are still live.
 
-Key dimensions: 89.1 mm OD, 10.8 mm off the paint including the 0.64 mm VHB. Pegs 4 mm, 56 mm apart.
+Key dimensions: 88 mm OD (over the 84 mm badge holder), 10.3 mm off the paint including the 0.64 mm VHB.
+  Screen 2.65 mm above centre under a centred 3" lens. Pegs 4 mm x 6 mm, 56 mm apart. Wire hole 16 mm at the centre.
