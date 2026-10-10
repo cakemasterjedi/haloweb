@@ -44,7 +44,7 @@ code { font-family: var(--mono); font-size: 0.88em; }
 <main>
   <header>
     <h1>Emblem Display Wiring</h1>
-    <p class="lede">Power and voltage sensing for the trunk-emblem screen: 12 V from an always-on fuse in the trunk fuse box (through an optional kill switch), through the INA219 and the 12 V → 5 V converter in the trunk lid, then up through the two hollow pegs in the factory peg holes: power through one, sensor wires through the other. No drilling.</p>
+    <p class="lede">Power and voltage sensing for the trunk-emblem screen: 12 V from an always-on fuse in the trunk fuse box (through an optional kill switch), through the INA219 and the 12 V → 5 V converter in the trunk lid, then up through one 16 mm hole drilled at the badge centre (in a grommet) to the board.</p>
   </header>
 
   <figure>
@@ -120,12 +120,10 @@ code { font-family: var(--mono); font-size: 0.88em; }
         <text x="78" y="440" font-size="11" style="fill:var(--w5)">5 V</text>
         <text x="156" y="440" font-size="11">GND</text>
 
-        <!-- boundary: hollow pegs in the factory peg holes -->
+        <!-- boundary: 16 mm centre hole -->
         <line x1="8" y1="470" x2="352" y2="470" stroke="currentColor" stroke-dasharray="5 4" opacity="0.5"/>
-        <rect x="48" y="474" width="112" height="15" rx="3" style="fill:var(--surface)"/>
-        <text x="104" y="485" text-anchor="middle" font-size="10.5" opacity="0.8">right peg (hollow)</text>
-        <rect x="216" y="474" width="112" height="15" rx="3" style="fill:var(--surface)"/>
-        <text x="272" y="485" text-anchor="middle" font-size="10.5" opacity="0.8">left peg (hollow)</text>
+        <rect x="96" y="474" width="168" height="15" rx="3" style="fill:var(--surface)"/>
+        <text x="180" y="485" text-anchor="middle" font-size="10.5" opacity="0.8">16 mm centre hole (grommet)</text>
 
         <!-- display board -->
         <rect x="30" y="512" width="300" height="112" rx="9" fill="none" stroke="currentColor" stroke-width="1.5"/>
@@ -144,7 +142,7 @@ code { font-family: var(--mono); font-size: 0.88em; }
         <text x="308" y="532" text-anchor="middle" font-size="9.5">SDA</text>
       </g>
     </svg>
-    <figcaption>12 V passes through the INA219's sense terminals before the converter, so the board can read the car's voltage. Power goes up the right peg and the sensor wires up the left one (seen from behind the car).</figcaption>
+    <figcaption>12 V passes through the INA219's sense terminals before the converter, so the board can read the car's voltage. All six display wires go up through the 16 mm centre hole.</figcaption>
     <div class="legend" aria-hidden="true">
       <span><i style="background: var(--w12)"></i>12 V</span>
       <span><i style="background: var(--w5)"></i>5 V</span>
@@ -187,9 +185,9 @@ code { font-family: var(--mono); font-size: 0.88em; }
       <li><strong>Which circuit:</strong> to keep the display running with the car off, tap an <em>always-on</em> (constant, terminal 30) fuse in the trunk fuse box, on the right side behind the trim cover. Find one with a test light or multimeter: lock the car, wait about 20 minutes for it to go to sleep, and check which fuses are still live. Avoid airbag, fuel pump, DSC and engine-computer fuses. The firmware's battery saver turns the display off if the battery gets low.</li>
       <li><strong>Kill switch (optional):</strong> for a car that sits for weeks, put a switch in the 12 V line right after the fuse tap so you can turn the display fully off. Use a 12 V switch rated 5 A or more: an inline rocker on a pigtail is easiest (no mounting), or a small sealed toggle tucked behind the trunk side trim near the fuse box.</li>
       <li><strong>Fuse tap:</strong> the G30 fuse box has both Mini and ATO (standard-size) blade fuses. Check the size of the fuse you tap and use the matching add-a-circuit with a 3 A fuse of the same size (a kit with both is easiest). The original fuse goes in the lower slot and the new 3 A fuse in the upper one. Fit the tap in the direction that puts its lead on the load side.</li>
-      <li><strong>Chassis ground:</strong> use an existing body ground stud or bolt in the trunk lid, on bare metal. Don't ground through the emblem pegs or the painted skin.</li>
-      <li><strong>Cables:</strong> each peg has a 2.7 mm wire hole. Right peg: two 28 AWG silicone wires (5 V + GND, about 1.0 mm thick each; keep the run under 1 m). Left peg: four 30 AWG silicone wires (3.3 V, GND, SDA, SCL). Use single wires, not sheathed cable, and fill each peg around the wires with silicone.</li>
-      <li><strong>Shared ground:</strong> the converter's input and output grounds are common, so the INA219's GND (through the left peg to the board's I2C port) shares the same ground as the 12 V side, which it needs to read voltage.</li>
+      <li><strong>Chassis ground:</strong> use an existing body ground stud or bolt in the trunk lid, on bare metal. Don't ground through the painted skin.</li>
+      <li><strong>Cables:</strong> two 28 AWG silicone wires (5 V + GND; keep the run under 1 m) and four 30 AWG silicone wires (3.3 V, GND, SDA, SCL), all through the back plate's centre hole and the 16 mm grommet. Seal both around the wires with silicone.</li>
+      <li><strong>Shared ground:</strong> the converter's input and output grounds are common, so the INA219's GND (to the board's I2C port) shares the same ground as the 12 V side, which it needs to read voltage.</li>
       <li><strong>Address:</strong> the INA219 is at I2C address <code>0x40</code>, which doesn't clash with the board's touch, RTC, IMU or IO-expander chips.</li>
     </ul>
   </section>

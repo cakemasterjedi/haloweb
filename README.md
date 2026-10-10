@@ -88,8 +88,8 @@ mounted at an angle). Settings are saved on the board.
 ## G30 trunk emblem build
 
 Want it in place of the trunk roundel on a G30 5 Series? The [`hardware`](hardware) folder has a slim
-3D-printed housing (10.8 mm off the paint, no drilling: it plugs into the factory peg holes),
-the wiring for the car battery and the INA219, and a step-by-step
+88 mm 3D-printed housing (10.3 mm off the paint; it locates on the factory peg holes and the wires go through one 16 mm hole),
+an optional aluminium heat spreader with thermal pads, the wiring for the car battery and the INA219, and a step-by-step
 [build guide](docs/G30_Emblem_Display_Build_Guide.pdf).
 
 ## Motion sensor (Settings tab)
